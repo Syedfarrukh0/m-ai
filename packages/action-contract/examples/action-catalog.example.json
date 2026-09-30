@@ -1,0 +1,1113 @@
+{
+  "catalogHash": "a91d72d34fbfd1d6319ef35cc61f116344ec6debeee7fa533013d70383b4b0df",
+  "contractVersion": "0.1.0",
+  "producer": {
+    "name": "demo-erp",
+    "version": "1.0.0"
+  },
+  "actions": [
+    {
+      "name": "assistant.usage.record",
+      "version": 1,
+      "kind": "command",
+      "module": "ASSISTANT",
+      "description": "Record the model usage and cost of one assistant turn or alert.",
+      "examples": [],
+      "tags": [
+        "assistant",
+        "usage"
+      ],
+      "permissions": [],
+      "risk": "write",
+      "requiresConfirmation": false,
+      "idempotent": true,
+      "hasPreview": false,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "turnId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "reply",
+              "alert"
+            ]
+          },
+          "conversationId": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "inputTokens": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "cachedInputTokens": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "outputTokens": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "audioSeconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "costUsd": {
+            "type": "string",
+            "pattern": "^-?\\d{1,15}(?:\\.\\d{1,4})?$",
+            "description": "Money as a decimal string, up to 4 decimal places. Never a number."
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "description": "An ISO 8601 timestamp."
+          }
+        },
+        "required": [
+          "turnId",
+          "kind",
+          "model",
+          "inputTokens",
+          "cachedInputTokens",
+          "outputTokens",
+          "costUsd",
+          "occurredAt"
+        ]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "recorded": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "recorded"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "core.context.get",
+      "version": 1,
+      "kind": "query",
+      "module": "CORE",
+      "description": "Who the user is, which company, its timezone, today and the fiscal year.",
+      "examples": [],
+      "tags": [
+        "context"
+      ],
+      "permissions": [],
+      "risk": "read",
+      "requiresConfirmation": false,
+      "idempotent": true,
+      "hasPreview": false,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "user": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "roles": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "locale": {
+                "type": "string",
+                "enum": [
+                  "en",
+                  "ur",
+                  "ur-Latn"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "displayName",
+              "roles",
+              "locale"
+            ],
+            "additionalProperties": false
+          },
+          "company": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "timezone": {
+                "type": "string"
+              },
+              "currency": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 3
+              },
+              "fiscalYear": {
+                "type": "object",
+                "properties": {
+                  "start": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                    "description": "A calendar date, YYYY-MM-DD."
+                  },
+                  "end": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                    "description": "A calendar date, YYYY-MM-DD."
+                  }
+                },
+                "required": [
+                  "start",
+                  "end"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "timezone",
+              "currency",
+              "fiscalYear"
+            ],
+            "additionalProperties": false
+          },
+          "today": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "A calendar date, YYYY-MM-DD."
+          },
+          "licensedModules": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]*$"
+            }
+          },
+          "assistant": {
+            "type": "object",
+            "properties": {
+              "settings": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "name": {
+                    "default": "Assistant",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 40
+                  },
+                  "language": {
+                    "default": "auto",
+                    "type": "string",
+                    "enum": [
+                      "auto",
+                      "en",
+                      "ur",
+                      "ur-Latn"
+                    ]
+                  },
+                  "tone": {
+                    "default": "friendly",
+                    "type": "string",
+                    "enum": [
+                      "formal",
+                      "friendly",
+                      "brief"
+                    ]
+                  },
+                  "greeting": {
+                    "type": "string",
+                    "maxLength": 280
+                  },
+                  "policy": {
+                    "type": "object",
+                    "properties": {
+                      "allowDestructive": {
+                        "default": false,
+                        "type": "boolean"
+                      },
+                      "financialLimit": {
+                        "type": "string",
+                        "pattern": "^-?\\d{1,15}(?:\\.\\d{1,4})?$",
+                        "description": "Money as a decimal string, up to 4 decimal places. Never a number."
+                      },
+                      "stepUp": {
+                        "default": "app",
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "app"
+                        ]
+                      },
+                      "allowedModules": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Z0-9_]*$"
+                        }
+                      }
+                    },
+                    "required": [
+                      "allowDestructive",
+                      "stepUp"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "consent": {
+                    "type": "object",
+                    "properties": {
+                      "termsVersion": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "acceptedAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                        "description": "An ISO 8601 timestamp."
+                      },
+                      "acceptedBy": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "termsVersion",
+                      "acceptedAt",
+                      "acceptedBy"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "name",
+                  "language",
+                  "tone",
+                  "policy"
+                ],
+                "additionalProperties": false
+              },
+              "quota": {
+                "type": "object",
+                "properties": {
+                  "included": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "used": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "packsRemaining": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "ok",
+                      "warning",
+                      "grace",
+                      "exhausted"
+                    ]
+                  }
+                },
+                "required": [
+                  "included",
+                  "used",
+                  "packsRemaining",
+                  "state"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "settings",
+              "quota"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "user",
+          "company",
+          "today",
+          "licensedModules"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "masters.customer.search",
+      "version": 1,
+      "kind": "query",
+      "module": "CORE",
+      "description": "Find customers by name, code or phone, tolerant of spelling variations.",
+      "examples": [
+        {
+          "title": "Find Madina Store",
+          "input": {
+            "query": "madina"
+          }
+        }
+      ],
+      "tags": [
+        "customers",
+        "search"
+      ],
+      "permissions": [
+        "customer:view"
+      ],
+      "risk": "read",
+      "requiresConfirmation": false,
+      "idempotent": true,
+      "hasPreview": false,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "display": {
+                  "type": "string"
+                },
+                "disambiguation": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "score": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "matchedOn": {
+                  "type": "string",
+                  "enum": [
+                    "name",
+                    "code",
+                    "phone",
+                    "other"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "display",
+                "disambiguation",
+                "score",
+                "matchedOn"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "paging": {
+        "defaultLimit": 10,
+        "maxLimit": 50
+      }
+    },
+    {
+      "name": "masters.customer.update",
+      "version": 1,
+      "kind": "command",
+      "module": "CORE",
+      "description": "Change a customer's phone number.",
+      "examples": [],
+      "tags": [
+        "customers"
+      ],
+      "permissions": [
+        "customer:update"
+      ],
+      "risk": "write",
+      "requiresConfirmation": false,
+      "idempotent": true,
+      "hasPreview": false,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "phone": {
+            "type": "string",
+            "pattern": "^03\\d{9}$"
+          },
+          "cnic": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "customerId",
+          "phone"
+        ]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "phone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "customerId",
+          "phone"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "reports.sales.summary",
+      "version": 1,
+      "kind": "query",
+      "module": "SALES",
+      "description": "Sales totals per customer for a date range, with grand totals over the whole range.",
+      "examples": [],
+      "tags": [
+        "sales",
+        "reports"
+      ],
+      "permissions": [
+        "report_sales:view"
+      ],
+      "risk": "read",
+      "requiresConfirmation": false,
+      "idempotent": true,
+      "hasPreview": false,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "A calendar date, YYYY-MM-DD."
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "A calendar date, YYYY-MM-DD."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "cursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "customerId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "customerName": {
+                  "type": "string"
+                },
+                "invoices": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "gross": {
+                  "type": "string",
+                  "pattern": "^-?\\d{1,15}(?:\\.\\d{1,4})?$",
+                  "description": "Money as a decimal string, up to 4 decimal places. Never a number."
+                }
+              },
+              "required": [
+                "customerId",
+                "customerName",
+                "invoices",
+                "gross"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "totals": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "pattern": "^-?\\d{1,15}(?:\\.\\d{1,4})?$",
+              "description": "Money as a decimal string, up to 4 decimal places. Never a number."
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor",
+          "truncated",
+          "totals",
+          "count"
+        ],
+        "additionalProperties": false
+      },
+      "paging": {
+        "defaultLimit": 25,
+        "maxLimit": 100
+      }
+    },
+    {
+      "name": "sales.invoice.cancel",
+      "version": 1,
+      "kind": "command",
+      "module": "SALES",
+      "description": "Cancel a posted sales invoice and reverse its effect on the balance.",
+      "examples": [],
+      "tags": [
+        "sales",
+        "invoices"
+      ],
+      "permissions": [
+        "invoice:cancel"
+      ],
+      "risk": "destructive",
+      "requiresConfirmation": true,
+      "idempotent": true,
+      "hasPreview": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "invoiceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3
+          }
+        },
+        "required": [
+          "invoiceId",
+          "reason"
+        ]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "invoiceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "invoiceNo": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "invoiceId",
+          "invoiceNo"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "sales.invoice.post",
+      "version": 1,
+      "kind": "command",
+      "module": "SALES",
+      "description": "Post a sales invoice for a customer: numbers it, adds 18% sales tax and updates the balance.",
+      "examples": [
+        {
+          "title": "Ten cartons to Madina Store",
+          "input": {
+            "customerId": "0192a000-0000-7000-8000-0000000000c1",
+            "date": "2026-10-01",
+            "lines": [
+              {
+                "description": "Pepsi 1.5L carton",
+                "quantity": 10,
+                "rate": "450"
+              }
+            ]
+          }
+        }
+      ],
+      "tags": [
+        "sales",
+        "invoices"
+      ],
+      "permissions": [
+        "invoice:create"
+      ],
+      "risk": "financial",
+      "requiresConfirmation": true,
+      "idempotent": true,
+      "hasPreview": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "A calendar date, YYYY-MM-DD."
+          },
+          "lines": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "description": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "quantity": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "rate": {
+                  "type": "string",
+                  "pattern": "^-?\\d{1,15}(?:\\.\\d{1,4})?$",
+                  "description": "Money as a decimal string, up to 4 decimal places. Never a number."
+                }
+              },
+              "required": [
+                "description",
+                "quantity",
+                "rate"
+              ]
+            }
+          }
+        },
+        "required": [
+          "customerId",
+          "date",
+          "lines"
+        ]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "invoiceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "invoiceNo": {
+            "type": "string"
+          },
+          "customerName": {
+            "type": "string"
+          },
+          "net": {
+            "type": "string",
+            "pattern": "^-?\\d{1,15}(?:\\.\\d{1,4})?$",
+            "description": "Money as a decimal string, up to 4 decimal places. Never a number."
+          },
+          "tax": {
+            "type": "string",
+            "pattern": "^-?\\d{1,15}(?:\\.\\d{1,4})?$",
+            "description": "Money as a decimal string, up to 4 decimal places. Never a number."
+          },
+          "gross": {
+            "type": "string",
+            "pattern": "^-?\\d{1,15}(?:\\.\\d{1,4})?$",
+            "description": "Money as a decimal string, up to 4 decimal places. Never a number."
+          },
+          "balanceAfter": {
+            "type": "string",
+            "pattern": "^-?\\d{1,15}(?:\\.\\d{1,4})?$",
+            "description": "Money as a decimal string, up to 4 decimal places. Never a number."
+          },
+          "creditLimit": {
+            "type": "string",
+            "pattern": "^-?\\d{1,15}(?:\\.\\d{1,4})?$",
+            "description": "Money as a decimal string, up to 4 decimal places. Never a number."
+          }
+        },
+        "required": [
+          "invoiceId",
+          "invoiceNo",
+          "customerName",
+          "net",
+          "tax",
+          "gross",
+          "balanceAfter",
+          "creditLimit"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "events": [
+    {
+      "type": "customer.updated",
+      "version": 1,
+      "module": "CORE",
+      "description": "A customer's details were changed.",
+      "payload": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "customerId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "type": "invoice.cancelled",
+      "version": 1,
+      "module": "SALES",
+      "description": "A posted sales invoice was cancelled.",
+      "payload": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "invoiceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "invoiceNo": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "invoiceId",
+          "invoiceNo"
+        ],
+        "additionalProperties": false
+      },
+      "audience": "invoice:view"
+    },
+    {
+      "type": "invoice.posted",
+      "version": 1,
+      "module": "SALES",
+      "description": "A sales invoice was posted to the ledger.",
+      "payload": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "invoiceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "invoiceNo": {
+            "type": "string"
+          },
+          "customerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "gross": {
+            "type": "string",
+            "pattern": "^-?\\d{1,15}(?:\\.\\d{1,4})?$",
+            "description": "Money as a decimal string, up to 4 decimal places. Never a number."
+          }
+        },
+        "required": [
+          "invoiceId",
+          "invoiceNo",
+          "customerId",
+          "gross"
+        ],
+        "additionalProperties": false
+      },
+      "audience": "invoice:view"
+    }
+  ],
+  "errors": [
+    {
+      "code": "UNKNOWN_ACTION",
+      "messages": {
+        "en": "That action does not exist.",
+        "ur": "اس نام کا کوئی عمل موجود نہیں۔"
+      }
+    },
+    {
+      "code": "VERSION_NOT_SUPPORTED",
+      "messages": {
+        "en": "That version of the action is not available.",
+        "ur": "اس عمل کا یہ ورژن دستیاب نہیں۔"
+      }
+    },
+    {
+      "code": "VALIDATION_FAILED",
+      "messages": {
+        "en": "Some of the details are not valid.",
+        "ur": "دی گئی کچھ معلومات درست نہیں۔"
+      }
+    },
+    {
+      "code": "PERMISSION_DENIED",
+      "messages": {
+        "en": "You do not have permission to do this.",
+        "ur": "آپ کو اس کام کی اجازت نہیں ہے۔"
+      }
+    },
+    {
+      "code": "MODULE_NOT_LICENSED",
+      "messages": {
+        "en": "Your company has not licensed this module.",
+        "ur": "آپ کی کمپنی نے یہ ماڈیول نہیں لیا ہوا۔"
+      }
+    },
+    {
+      "code": "LICENCE_READ_ONLY",
+      "messages": {
+        "en": "The licence has expired. You can view but not change anything.",
+        "ur": "لائسنس کی مدت ختم ہو چکی ہے۔ آپ دیکھ سکتے ہیں مگر کوئی تبدیلی نہیں کر سکتے۔"
+      }
+    },
+    {
+      "code": "NOT_FOUND",
+      "messages": {
+        "en": "The record was not found.",
+        "ur": "ریکارڈ نہیں ملا۔"
+      }
+    },
+    {
+      "code": "CONFLICT",
+      "messages": {
+        "en": "The record has changed or already exists.",
+        "ur": "ریکارڈ تبدیل ہو چکا ہے یا پہلے سے موجود ہے۔"
+      }
+    },
+    {
+      "code": "CONFIRMATION_REQUIRED",
+      "messages": {
+        "en": "Please review the details and confirm first.",
+        "ur": "پہلے تفصیل دیکھ کر تصدیق کریں۔"
+      }
+    },
+    {
+      "code": "CONFIRMATION_USED",
+      "messages": {
+        "en": "This confirmation has already been used.",
+        "ur": "یہ تصدیق پہلے ہی استعمال ہو چکی ہے۔"
+      }
+    },
+    {
+      "code": "PREVIEW_STALE",
+      "messages": {
+        "en": "The details changed after you reviewed them. Please review again.",
+        "ur": "آپ کے دیکھنے کے بعد تفصیلات بدل گئی ہیں۔ براہ کرم دوبارہ دیکھ لیں۔"
+      }
+    },
+    {
+      "code": "PREVIEW_EXPIRED",
+      "messages": {
+        "en": "The confirmation has expired. Please review again.",
+        "ur": "تصدیق کا وقت ختم ہو گیا ہے۔ براہ کرم دوبارہ دیکھ لیں۔"
+      }
+    },
+    {
+      "code": "PREVIEW_NOT_SUPPORTED",
+      "messages": {
+        "en": "This action has no preview.",
+        "ur": "اس عمل کا پیشگی جائزہ دستیاب نہیں۔"
+      }
+    },
+    {
+      "code": "IDEMPOTENCY_KEY_REQUIRED",
+      "messages": {
+        "en": "A request key is required.",
+        "ur": "درخواست کی کلید ضروری ہے۔"
+      }
+    },
+    {
+      "code": "IDEMPOTENCY_KEY_REUSED",
+      "messages": {
+        "en": "This request key was already used with different details.",
+        "ur": "یہ درخواست کی کلید مختلف تفصیلات کے ساتھ پہلے استعمال ہو چکی ہے۔"
+      }
+    },
+    {
+      "code": "IDEMPOTENCY_IN_PROGRESS",
+      "messages": {
+        "en": "The same request is still being processed.",
+        "ur": "یہی درخواست ابھی جاری ہے۔"
+      }
+    },
+    {
+      "code": "ASSISTANT_POLICY_DENIED",
+      "messages": {
+        "en": "Your company's settings do not allow the assistant to do this.",
+        "ur": "آپ کی کمپنی کی ترتیبات کے مطابق اسسٹنٹ یہ کام نہیں کر سکتا۔"
+      }
+    },
+    {
+      "code": "ASSISTANT_QUOTA_EXCEEDED",
+      "messages": {
+        "en": "The assistant's message limit has been reached. Please contact your admin.",
+        "ur": "اسسٹنٹ کے پیغامات کی حد پوری ہو چکی ہے۔ براہ کرم اپنے ایڈمن سے رابطہ کریں۔"
+      }
+    },
+    {
+      "code": "STEP_UP_REQUIRED",
+      "messages": {
+        "en": "This needs your approval in the app.",
+        "ur": "اس کام کے لیے ایپ میں آپ کی منظوری ضروری ہے۔"
+      }
+    },
+    {
+      "code": "RATE_LIMITED",
+      "messages": {
+        "en": "Too many requests. Please try again shortly.",
+        "ur": "بہت زیادہ درخواستیں۔ تھوڑی دیر بعد دوبارہ کوشش کریں۔"
+      }
+    },
+    {
+      "code": "INTERNAL",
+      "messages": {
+        "en": "Something went wrong. Please try again.",
+        "ur": "کچھ خرابی ہو گئی۔ براہ کرم دوبارہ کوشش کریں۔"
+      }
+    },
+    {
+      "code": "sales.credit_limit_exceeded",
+      "messages": {
+        "en": "The customer would go over the credit limit.",
+        "ur": "گاہک کی ادھار کی حد سے تجاوز ہو جائے گا۔"
+      }
+    },
+    {
+      "code": "sales.near_credit_limit",
+      "messages": {
+        "en": "The customer is near the credit limit.",
+        "ur": "گاہک ادھار کی حد کے قریب ہے۔"
+      }
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "name": "m-ai",
+  "private": true,
+  "description": "M.Ai — a generic, app-agnostic AI assistant and the SDK apps use to become assistant-ready.",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "pnpm": {
+    "overrides": {
+      "source-map-js": "1.2.1"
+    },
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "verify": "pnpm -r typecheck && pnpm -r test && pnpm -r build"
+  }
+}

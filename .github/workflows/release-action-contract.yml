@@ -1,0 +1,38 @@
+name: release action-contract
+
+# Push a tag like `action-contract-v0.1.0`: CI verifies, packs the tarball and
+# attaches it to a GitHub Release. Apps vendor that exact file, pinned.
+on:
+  push:
+    tags: ['action-contract-v*']
+
+permissions:
+  contents: write # create the release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm verify
+      - name: Check the tag matches package.json
+        working-directory: packages/action-contract
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          test "action-contract-v$VERSION" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME ≠ v$VERSION"; exit 1; }
+      - name: Pack
+        working-directory: packages/action-contract
+        run: pnpm pack --pack-destination "$RUNNER_TEMP/dist"
+      - name: Create the GitHub Release with the tarball
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "$RUNNER_TEMP"/dist/*.tgz \
+            --title "$GITHUB_REF_NAME" \
+            --notes "See packages/action-contract/CHANGELOG.md. Vendor the attached tarball, pinned."
