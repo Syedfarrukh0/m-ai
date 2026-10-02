@@ -3,7 +3,7 @@
  * framework, a database, the network or an AI model.
  */
 
-export const CONTRACT_VERSION = '0.1.0' as const;
+export const CONTRACT_VERSION = '0.1.1' as const;
 
 export type ActionKind = 'query' | 'command';
 

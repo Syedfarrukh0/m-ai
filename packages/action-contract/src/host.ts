@@ -78,8 +78,17 @@ export type IdempotencyClaim =
   | { state: 'mismatch' };
 
 export interface StoredResult {
+  /** The command's output, with its `sensitiveOutput` paths already redacted. */
   data: unknown;
   events: string[];
+  /** True when sensitive output paths were redacted before storing. */
+  redacted?: boolean;
+}
+
+/** Which action an idempotency key is claimed for — for the key's row and the support log. */
+export interface IdempotencyScope {
+  action: string;
+  version: number;
 }
 
 export interface HostTransaction<R, E extends object> {
@@ -87,9 +96,13 @@ export interface HostTransaction<R, E extends object> {
   /** Write a domain event to the outbox, in this transaction. */
   emit<K extends keyof E & string>(type: K, payload: E[K]): Promise<void>;
   audit(entry: AuditEntry): Promise<void>;
-  /** Scope keys by tenant. Same key + same inputHash after commit = 'done'. */
-  claimIdempotency(key: string, inputHash: string): Promise<IdempotencyClaim>;
-  storeIdempotency(key: string, inputHash: string, result: StoredResult): Promise<void>;
+  /**
+   * Scope keys by tenant. Same key + same inputHash after commit = 'done'.
+   * `inputHash` already covers action + version + input; `scope` names them
+   * for the row (added in 0.1.1 — hosts written for 0.1.0 may ignore it).
+   */
+  claimIdempotency(key: string, inputHash: string, scope: IdempotencyScope): Promise<IdempotencyClaim>;
+  storeIdempotency(key: string, inputHash: string, result: StoredResult, scope: IdempotencyScope): Promise<void>;
   /**
    * Unique insert of the confirmation id. 'used' when it was already consumed
    * (by a committed execute with a different idempotency key).
@@ -112,7 +125,7 @@ export interface AuditEntry {
   /** With `sensitive` paths replaced by "[redacted]". */
   input: unknown;
   outcome: 'ok' | 'error' | 'denied' | 'previewed' | 'replayed';
-  /** Output for commands; for queries, the row count only. */
+  /** Output for commands (with `sensitiveOutput` paths redacted); for queries, the row count only. */
   result?: unknown;
   errorCode?: string;
   durationMs: number;

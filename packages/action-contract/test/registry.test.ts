@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { alertTokenScope, createActionRegistry, defineAction, httpStatusOf } from '../src/index.js';
+import { CONTRACT_VERSION, alertTokenScope, createActionRegistry, defineAction, httpStatusOf } from '../src/index.js';
 import type { ActionResult, PreviewResult } from '../src/index.js';
 import {
   ENABLED_ASSISTANT,
@@ -42,7 +42,7 @@ describe('catalog', () => {
   it('exports every action, event and error with JSON Schemas, sorted', () => {
     const { registry } = makeApp();
     const catalog = registry.catalog();
-    expect(catalog.contractVersion).toBe('0.1.0');
+    expect(catalog.contractVersion).toBe(CONTRACT_VERSION);
     expect(catalog.producer).toEqual({ name: 'demo-erp', version: '1.0.0' });
     expect(catalog.actions.map((a) => a.name)).toEqual([
       'assistant.usage.record',

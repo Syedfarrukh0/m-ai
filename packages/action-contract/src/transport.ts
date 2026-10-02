@@ -10,7 +10,8 @@ import type { ActionResult } from './results.js';
  *        header Idempotency-Key  (wins over body.idempotencyKey; put it in ctx.idempotencyKey)
  *        header X-Request-Id     (echoed in meta.requestId)
  *
- * The body is always the ActionResult; the status mirrors it (see STANDARD_ERRORS[code].http).
+ * The body is always the ActionResult; the status mirrors it: `error.http`, which the registry sets
+ * from STANDARD_ERRORS or from the app's registered module errors (default 422).
  * 401 for a missing/expired token is the app's auth layer, before the registry.
  */
 export const HTTP_ROUTES = {
@@ -25,5 +26,6 @@ export const HTTP_HEADERS = {
 } as const;
 
 export function httpStatusOf(result: ActionResult<unknown>): number {
-  return result.ok ? 200 : httpStatusFor(result.error.code);
+  if (result.ok) return 200;
+  return result.error.http ?? httpStatusFor(result.error.code);
 }

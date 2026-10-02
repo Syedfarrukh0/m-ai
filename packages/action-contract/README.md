@@ -73,6 +73,18 @@ export const invoicePost = defineAction<PostInput, PostOutput, Runtime, Events>(
 
 `defineAction` throws at boot, listing every rule the definition breaks (`DEFINITION_RULES`).
 
+Other fields a definition can carry:
+
+| Field | Use it for |
+|---|---|
+| `sensitive: ['cnic', 'owner.password']` | Input paths kept out of the audit log. |
+| `sensitiveOutput: ['inviteLink']` | A secret the command returns **once** (an invitation or reset link). The caller gets it; the audit log and the idempotency store get `"[redacted]"`. A replay returns the redacted output with `meta.redacted: true`. |
+| `availableWhenReadOnly: true` | A `write` command that only reads the books — printing an old invoice, exporting a report — so it still runs when the licence has lapsed to read-only. Shown in the catalog. |
+| `paging: { defaultLimit, maxLimit }` | List queries. The registry applies the default and refuses anything above the maximum. |
+| `deprecated: { since, useInstead }` | An old version that still runs, with a warning in `meta`. |
+
+One operation whose permission depends on its input is **several actions**, each with a static permission. For example, `documents.invoice.render`, `documents.statement.render` and `documents.receipt.render` — not one `documents.render`. That way `list()` and the catalog stay exact. See `WELL_KNOWN_ACTION_PATTERNS`.
+
 ### 2. Implement the host once
 
 `ActionHost` is the only app-shaped seam. It covers:
@@ -99,7 +111,10 @@ import { createActionRegistry } from '@m-ai/action-contract';
 const registry = createActionRegistry<Runtime, Events>({ host, producer: { name: 'my-erp', version } });
 registry.register(invoicePost, /* … */);
 registry.registerEvents(invoicePosted, /* … */);
-registry.registerErrors({ 'sales.credit_limit_exceeded': { en: '…', ur: '…' } });
+registry.registerErrors({
+  'sales.credit_limit_exceeded': { en: '…', ur: '…' },                      // 422, not retryable
+  'documents.busy': { en: '…', ur: '…', http: 503, retryable: true },       // "try again in a moment"
+});
 registry.validate();
 ```
 
@@ -157,7 +172,7 @@ It contains every action with its JSON Schema 2020-12 input/output, every event,
 1. **Resolve the action.** Unknown name → `UNKNOWN_ACTION`; unknown version → `VERSION_NOT_SUPPORTED`. A deprecated version still runs and adds a warning to `meta`.
 2. **Token scope.** A delegated token with a `scope` that doesn't cover the action → `PERMISSION_DENIED`.
 3. **Permissions.** The user must hold every required permission → `PERMISSION_DENIED`.
-4. **Licence.** `MODULE_NOT_LICENSED`. `LICENCE_READ_ONLY` refuses commands; queries still run.
+4. **Licence.** `MODULE_NOT_LICENSED`. `LICENCE_READ_ONLY` refuses commands, except those marked `availableWhenReadOnly`; queries still run.
 5. **Assistant gates** (source `assistant`): enabled, policy (destructive, allowedModules), quota → `ASSISTANT_POLICY_DENIED` / `ASSISTANT_QUOTA_EXCEEDED`.
 6. **Input.** Validated with zod → `VALIDATION_FAILED`. Paging defaults are applied and the maximum enforced. This comes after the access checks, so a caller without access learns nothing about the schema.
 7. **Idempotency key.** Commands from mobile, desktop, api and the assistant must carry one → `IDEMPOTENCY_KEY_REQUIRED`.
@@ -172,8 +187,8 @@ It contains every action with its JSON Schema 2020-12 input/output, every event,
     3. run the handler;
     4. validate the output;
     5. re-describe the result and compare fingerprints (mismatch → `PREVIEW_STALE`, with the new preview in `details`);
-    6. write the audit row;
-    7. store the idempotency result;
+    6. write the audit row, with `sensitiveOutput` redacted;
+    7. store the idempotency result, also redacted (and handed `{ action, version }`);
     8. meter.
 
     Then commit, and call `afterCommit`.
@@ -190,7 +205,18 @@ It contains every action with its JSON Schema 2020-12 input/output, every event,
 
 The fingerprint covers action, version, tenant, user, input, `primaryAmount`, each change's op/entity/amounts/fields, and the warning codes. It deliberately ignores provisional document numbers and text.
 
-Unexpected errors become `INTERNAL`, with no detail leaked, and are passed to `host.logError`.
+### Errors
+
+Every error carries:
+
+- `code`;
+- `message`, in the caller's language;
+- `messages`, in `en` + `ur`;
+- `http`, the status on `/actions/*`;
+- `retryable`;
+- optional `details`.
+
+Standard codes take their status and retryability from `STANDARD_ERRORS`. Module codes take theirs from `registerErrors`; the default is 422, not retryable. Unexpected errors become `INTERNAL`, with no detail leaked, and are passed to `host.logError`.
 
 ---
 
@@ -202,7 +228,7 @@ The assistant uses:
 - `CoreContextOutput`, from `core.context.get`;
 - `SearchItem`;
 - `AssistantUsageRecordInput`;
-- `WELL_KNOWN_ACTIONS`;
+- `WELL_KNOWN_ACTIONS` and `WELL_KNOWN_ACTION_PATTERNS` (with `matchesActionPattern`);
 - `alertTokenScope()`;
 - `EventDelivery`;
 - `verifyWebhook()`.
@@ -225,4 +251,5 @@ const delivery = EventDelivery.parse(JSON.parse(rawBody));
 
 Semver. While in `0.x`, a breaking change bumps the minor version. The ERP pins exact versions.
 
-- **v0.1.0** knows the `stepUp` modes `'none' | 'app'`. Unknown values parse as `'app'`, the strictest.
+- **v0.1.x** knows the `stepUp` modes `'none' | 'app'`. Unknown values parse as `'app'`, the strictest.
+- **0.2.0** will remove `WELL_KNOWN_ACTIONS.documentsRender`. It is deprecated in 0.1.1; use `documents.<kind>.render`.

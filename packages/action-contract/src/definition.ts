@@ -82,6 +82,19 @@ export interface ActionDefinition<I = unknown, O = unknown, R = unknown, E exten
   /** Top-level input keys kept out of the audit log: ['password'], ['cnic']. Dotted paths reach nested keys. */
   sensitive?: readonly string[];
   /**
+   * Output paths holding a secret shown once (an invitation or reset link).
+   * The caller gets the full output; the audit log and the idempotency store
+   * get it with these paths replaced by "[redacted]", so a replay returns the
+   * redacted output with `meta.redacted: true`.
+   */
+  sensitiveOutput?: readonly string[];
+  /**
+   * A command that only reads the books (prints an old invoice, exports a
+   * report) but writes a file or a log, so it is not a query. True = it still
+   * runs when the module's licence is read-only. Only for risk "write".
+   */
+  availableWhenReadOnly?: boolean;
+  /**
    * Describe what `handler` produced, for a person to confirm. Called with the
    * handler's REAL output — in preview mode from a rolled-back run — so the
    * totals shown are the totals that will be committed. Required when
@@ -113,6 +126,8 @@ export const DEFINITION_RULES = [
   'requiresConfirmation ⇒ preview is defined',
   'paging only on queries, and 1 ≤ defaultLimit ≤ maxLimit ≤ 200',
   'every sensitive path is a non-empty string',
+  'every sensitiveOutput path is a non-empty string',
+  'availableWhenReadOnly ⇒ command with risk "write"',
   'examples have a title',
   '(registry) name + version is unique',
   '(registry) deprecated.useInstead names a registered action',
@@ -172,6 +187,10 @@ export function checkDefinition(def: AnyAction): string[] {
   }
   if (def.sensitive !== undefined && !def.sensitive.every((p) => typeof p === 'string' && p.length > 0))
     broken.push('every sensitive path is a non-empty string');
+  if (def.sensitiveOutput !== undefined && !def.sensitiveOutput.every((p) => typeof p === 'string' && p.length > 0))
+    broken.push('every sensitiveOutput path is a non-empty string');
+  if (def.availableWhenReadOnly === true && (def.kind !== 'command' || def.risk !== 'write'))
+    broken.push('availableWhenReadOnly ⇒ command with risk "write"');
   if (def.examples !== undefined && !def.examples.every((e) => typeof e.title === 'string' && e.title.trim().length > 0))
     broken.push('examples have a title');
   if (typeof def.handler !== 'function') broken.push('handler is a function');

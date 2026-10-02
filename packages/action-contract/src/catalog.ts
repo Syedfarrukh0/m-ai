@@ -20,6 +20,8 @@ export interface CatalogEntry {
   requiresConfirmation: boolean;
   idempotent: boolean;
   hasPreview: boolean;
+  /** Runs on a read-only licence (queries always do). */
+  availableWhenReadOnly: boolean;
   deprecated?: { since: string; useInstead?: string };
   paging?: { defaultLimit: number; maxLimit: number };
   input: JsonSchema;
@@ -40,7 +42,14 @@ export interface ActionCatalog {
   producer: { name: string; version: string };
   actions: CatalogEntry[];
   events: CatalogEvent[];
-  errors: Array<{ code: string; messages: LocalizedText }>;
+  errors: CatalogError[];
+}
+
+export interface CatalogError {
+  code: string;
+  messages: LocalizedText;
+  http: number;
+  retryable: boolean;
 }
 
 export interface ListResponse {
@@ -67,6 +76,7 @@ export function catalogEntry(def: AnyAction): CatalogEntry {
     requiresConfirmation: def.requiresConfirmation,
     idempotent: def.idempotent,
     hasPreview: typeof def.preview === 'function',
+    availableWhenReadOnly: def.kind === 'query' || def.availableWhenReadOnly === true,
     input: toSchema(def.input, 'input'),
     output: toSchema(def.output, 'output'),
   };

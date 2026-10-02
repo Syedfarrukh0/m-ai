@@ -23,6 +23,6 @@ export * from './assistant.js';
 export * from './delegation.js';
 export * from './webhooks.js';
 export * from './transport.js';
-export { createActionRegistry, redact } from './registry.js';
+export { createActionRegistry, redact, redactWithFlag } from './registry.js';
 export type { ActionRegistry, RegistryOptions } from './registry.js';
 export { canonicalJson, sha256Hex } from './crypto.js';

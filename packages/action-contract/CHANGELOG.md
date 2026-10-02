@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.1 — 2026-10-02
+
+These changes come from the ERP's review of 0.1.0. Everything is additive. A host written for 0.1.0 still compiles.
+
+### Added
+- **Module error status (ask A).** `registerErrors` accepts `{ en, ur, http?, retryable? }`. Every `ActionError` now carries `http` and `retryable`, and the catalog exports both for every code. `httpStatusOf` uses `error.http`. `STANDARD_ERRORS` entries gain `retryable`, which is true for `RATE_LIMITED` and `IDEMPOTENCY_IN_PROGRESS`.
+- **`availableWhenReadOnly` (ask B).** Lets a `write` command that only reads the books run on a read-only licence. It is exported in the catalog, where queries always show `true`.
+- **Idempotency scope (ask C).** `claimIdempotency` and `storeIdempotency` receive `{ action, version }` as a last argument. `StoredResult` gains `redacted`.
+- **`sensitiveOutput` (ask E).** Output paths redacted in the audit entry and the idempotency store. The first response is unchanged; a replay returns the redacted output with `meta.redacted: true`.
+- **One render action per document kind (§3).** `WELL_KNOWN_ACTION_PATTERNS` (`masters.<entity>.search`, `documents.<kind>.render`) and `matchesActionPattern()`.
+- `redactWithFlag()`.
+
+### Changed
+- **Examples ship (ask D).** The tarball now includes `examples/` (`action-catalog.example.json`).
+
+### Deprecated
+- `WELL_KNOWN_ACTIONS.documentsRender`. Use `documents.<kind>.render`. It will be removed in 0.2.0.
+
 ## 0.1.0 — 2026-10-01
 
 First version. It implements the ERP readiness review (Appendix A), Additions 1–9 and the decisions of 30 Sep 2026.

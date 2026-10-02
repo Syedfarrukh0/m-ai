@@ -1,6 +1,6 @@
 {
-  "catalogHash": "a91d72d34fbfd1d6319ef35cc61f116344ec6debeee7fa533013d70383b4b0df",
-  "contractVersion": "0.1.0",
+  "catalogHash": "26d6c41ed3610fd121b4da93dcce6fb4b43959790cdc06bed58a4e1cd1651e12",
+  "contractVersion": "0.1.1",
   "producer": {
     "name": "demo-erp",
     "version": "1.0.0"
@@ -22,6 +22,7 @@
       "requiresConfirmation": false,
       "idempotent": true,
       "hasPreview": false,
+      "availableWhenReadOnly": false,
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -119,6 +120,7 @@
       "requiresConfirmation": false,
       "idempotent": true,
       "hasPreview": false,
+      "availableWhenReadOnly": true,
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -405,6 +407,7 @@
       "requiresConfirmation": false,
       "idempotent": true,
       "hasPreview": false,
+      "availableWhenReadOnly": true,
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -501,6 +504,7 @@
       "requiresConfirmation": false,
       "idempotent": true,
       "hasPreview": false,
+      "availableWhenReadOnly": false,
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -561,6 +565,7 @@
       "requiresConfirmation": false,
       "idempotent": true,
       "hasPreview": false,
+      "availableWhenReadOnly": true,
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -684,6 +689,7 @@
       "requiresConfirmation": true,
       "idempotent": true,
       "hasPreview": true,
+      "availableWhenReadOnly": false,
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -756,6 +762,7 @@
       "requiresConfirmation": true,
       "idempotent": true,
       "hasPreview": true,
+      "availableWhenReadOnly": false,
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -953,161 +960,207 @@
       "messages": {
         "en": "That action does not exist.",
         "ur": "اس نام کا کوئی عمل موجود نہیں۔"
-      }
+      },
+      "http": 404,
+      "retryable": false
     },
     {
       "code": "VERSION_NOT_SUPPORTED",
       "messages": {
         "en": "That version of the action is not available.",
         "ur": "اس عمل کا یہ ورژن دستیاب نہیں۔"
-      }
+      },
+      "http": 404,
+      "retryable": false
     },
     {
       "code": "VALIDATION_FAILED",
       "messages": {
         "en": "Some of the details are not valid.",
         "ur": "دی گئی کچھ معلومات درست نہیں۔"
-      }
+      },
+      "http": 400,
+      "retryable": false
     },
     {
       "code": "PERMISSION_DENIED",
       "messages": {
         "en": "You do not have permission to do this.",
         "ur": "آپ کو اس کام کی اجازت نہیں ہے۔"
-      }
+      },
+      "http": 403,
+      "retryable": false
     },
     {
       "code": "MODULE_NOT_LICENSED",
       "messages": {
         "en": "Your company has not licensed this module.",
         "ur": "آپ کی کمپنی نے یہ ماڈیول نہیں لیا ہوا۔"
-      }
+      },
+      "http": 403,
+      "retryable": false
     },
     {
       "code": "LICENCE_READ_ONLY",
       "messages": {
         "en": "The licence has expired. You can view but not change anything.",
         "ur": "لائسنس کی مدت ختم ہو چکی ہے۔ آپ دیکھ سکتے ہیں مگر کوئی تبدیلی نہیں کر سکتے۔"
-      }
+      },
+      "http": 403,
+      "retryable": false
     },
     {
       "code": "NOT_FOUND",
       "messages": {
         "en": "The record was not found.",
         "ur": "ریکارڈ نہیں ملا۔"
-      }
+      },
+      "http": 404,
+      "retryable": false
     },
     {
       "code": "CONFLICT",
       "messages": {
         "en": "The record has changed or already exists.",
         "ur": "ریکارڈ تبدیل ہو چکا ہے یا پہلے سے موجود ہے۔"
-      }
+      },
+      "http": 409,
+      "retryable": false
     },
     {
       "code": "CONFIRMATION_REQUIRED",
       "messages": {
         "en": "Please review the details and confirm first.",
         "ur": "پہلے تفصیل دیکھ کر تصدیق کریں۔"
-      }
+      },
+      "http": 428,
+      "retryable": false
     },
     {
       "code": "CONFIRMATION_USED",
       "messages": {
         "en": "This confirmation has already been used.",
         "ur": "یہ تصدیق پہلے ہی استعمال ہو چکی ہے۔"
-      }
+      },
+      "http": 409,
+      "retryable": false
     },
     {
       "code": "PREVIEW_STALE",
       "messages": {
         "en": "The details changed after you reviewed them. Please review again.",
         "ur": "آپ کے دیکھنے کے بعد تفصیلات بدل گئی ہیں۔ براہ کرم دوبارہ دیکھ لیں۔"
-      }
+      },
+      "http": 409,
+      "retryable": false
     },
     {
       "code": "PREVIEW_EXPIRED",
       "messages": {
         "en": "The confirmation has expired. Please review again.",
         "ur": "تصدیق کا وقت ختم ہو گیا ہے۔ براہ کرم دوبارہ دیکھ لیں۔"
-      }
+      },
+      "http": 409,
+      "retryable": false
     },
     {
       "code": "PREVIEW_NOT_SUPPORTED",
       "messages": {
         "en": "This action has no preview.",
         "ur": "اس عمل کا پیشگی جائزہ دستیاب نہیں۔"
-      }
+      },
+      "http": 400,
+      "retryable": false
     },
     {
       "code": "IDEMPOTENCY_KEY_REQUIRED",
       "messages": {
         "en": "A request key is required.",
         "ur": "درخواست کی کلید ضروری ہے۔"
-      }
+      },
+      "http": 400,
+      "retryable": false
     },
     {
       "code": "IDEMPOTENCY_KEY_REUSED",
       "messages": {
         "en": "This request key was already used with different details.",
         "ur": "یہ درخواست کی کلید مختلف تفصیلات کے ساتھ پہلے استعمال ہو چکی ہے۔"
-      }
+      },
+      "http": 409,
+      "retryable": false
     },
     {
       "code": "IDEMPOTENCY_IN_PROGRESS",
       "messages": {
         "en": "The same request is still being processed.",
         "ur": "یہی درخواست ابھی جاری ہے۔"
-      }
+      },
+      "http": 409,
+      "retryable": true
     },
     {
       "code": "ASSISTANT_POLICY_DENIED",
       "messages": {
         "en": "Your company's settings do not allow the assistant to do this.",
         "ur": "آپ کی کمپنی کی ترتیبات کے مطابق اسسٹنٹ یہ کام نہیں کر سکتا۔"
-      }
+      },
+      "http": 403,
+      "retryable": false
     },
     {
       "code": "ASSISTANT_QUOTA_EXCEEDED",
       "messages": {
         "en": "The assistant's message limit has been reached. Please contact your admin.",
         "ur": "اسسٹنٹ کے پیغامات کی حد پوری ہو چکی ہے۔ براہ کرم اپنے ایڈمن سے رابطہ کریں۔"
-      }
+      },
+      "http": 402,
+      "retryable": false
     },
     {
       "code": "STEP_UP_REQUIRED",
       "messages": {
         "en": "This needs your approval in the app.",
         "ur": "اس کام کے لیے ایپ میں آپ کی منظوری ضروری ہے۔"
-      }
+      },
+      "http": 428,
+      "retryable": false
     },
     {
       "code": "RATE_LIMITED",
       "messages": {
         "en": "Too many requests. Please try again shortly.",
         "ur": "بہت زیادہ درخواستیں۔ تھوڑی دیر بعد دوبارہ کوشش کریں۔"
-      }
+      },
+      "http": 429,
+      "retryable": true
     },
     {
       "code": "INTERNAL",
       "messages": {
         "en": "Something went wrong. Please try again.",
         "ur": "کچھ خرابی ہو گئی۔ براہ کرم دوبارہ کوشش کریں۔"
-      }
+      },
+      "http": 500,
+      "retryable": false
     },
     {
       "code": "sales.credit_limit_exceeded",
       "messages": {
         "en": "The customer would go over the credit limit.",
         "ur": "گاہک کی ادھار کی حد سے تجاوز ہو جائے گا۔"
-      }
+      },
+      "http": 422,
+      "retryable": false
     },
     {
       "code": "sales.near_credit_limit",
       "messages": {
         "en": "The customer is near the credit limit.",
         "ur": "گاہک ادھار کی حد کے قریب ہے۔"
-      }
+      },
+      "http": 422,
+      "retryable": false
     }
   ]
 }

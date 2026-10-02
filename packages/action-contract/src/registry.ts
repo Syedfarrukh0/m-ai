@@ -8,9 +8,9 @@ import type { ActionContext, HandlerContext } from './context.js';
 import type { ActionPreview, AnyAction, AnyEvent } from './definition.js';
 import { ActionDefinitionError, checkDefinition } from './definition.js';
 import { scopeAllows } from './delegation.js';
-import type { ActionError, StandardErrorCode } from './errors.js';
-import { ActionFailure, STANDARD_ERRORS, isValidErrorCode, makeError, standardError } from './errors.js';
-import type { ActionHost, AuditEntry, HostTransaction } from './host.js';
+import type { ActionError, ModuleErrorSpec, StandardErrorCode } from './errors.js';
+import { ActionFailure, MODULE_ERROR_HTTP, STANDARD_ERRORS, isStandardErrorCode, isValidErrorCode, makeError, standardError } from './errors.js';
+import type { ActionHost, AuditEntry, HostTransaction, IdempotencyScope, StoredResult } from './host.js';
 import type { ActionResult, ExecuteRequest, ListRequest, PreviewRequest, PreviewResult, ResultMeta } from './results.js';
 import { MoneyString } from './schemas.js';
 import type { ActionSource, LocalizedText } from './vocabulary.js';
@@ -35,8 +35,8 @@ export interface RegistryOptions<R, E extends object> {
 export interface ActionRegistry {
   register(...defs: AnyAction[]): void;
   registerEvents(...events: AnyEvent[]): void;
-  /** The app's module error catalogue (code → en/ur), exported in the catalog. */
-  registerErrors(errors: Record<string, LocalizedText>): void;
+  /** The app's module error catalogue (code → en/ur, optional http + retryable), exported in the catalog. */
+  registerErrors(errors: Record<string, ModuleErrorSpec>): void;
   /** Cross-definition rules. Throws ActionDefinitionError. */
   validate(): void;
   get(name: string, version?: number): AnyAction | undefined;
@@ -80,7 +80,7 @@ export function createActionRegistry<R, E extends object>(options: RegistryOptio
   const byName = new Map<string, AnyAction[]>(); // versions ascending
   const entries = new Map<AnyAction, CatalogEntry>();
   const events = new Map<string, AnyEvent>();
-  const moduleErrors = new Map<string, LocalizedText>();
+  const moduleErrors = new Map<string, { messages: LocalizedText; http: number; retryable: boolean }>();
   let cachedHash: string | undefined;
 
   const now = () => (host.now ? host.now() : new Date());
@@ -110,13 +110,28 @@ export function createActionRegistry<R, E extends object>(options: RegistryOptio
     cachedHash = undefined;
   }
 
-  function registerErrors(errors: Record<string, LocalizedText>): void {
-    for (const [code, messages] of Object.entries(errors)) {
-      if (!isValidErrorCode(code) || STANDARD_ERRORS[code as StandardErrorCode] !== undefined)
+  function registerErrors(errors: Record<string, ModuleErrorSpec>): void {
+    for (const [code, spec] of Object.entries(errors)) {
+      if (!isValidErrorCode(code) || isStandardErrorCode(code))
         throw new TypeError(`module error code "${code}" must look like "<area>.<snake_case>"`);
-      moduleErrors.set(code, messages);
+      const http = spec.http ?? MODULE_ERROR_HTTP;
+      if (!Number.isInteger(http) || http < 400 || http > 599)
+        throw new TypeError(`module error code "${code}": http must be an integer from 400 to 599`);
+      if (spec.retryable !== undefined && typeof spec.retryable !== 'boolean')
+        throw new TypeError(`module error code "${code}": retryable must be a boolean`);
+      moduleErrors.set(code, { messages: { en: spec.en, ur: spec.ur }, http, retryable: spec.retryable ?? false });
     }
     cachedHash = undefined;
+  }
+
+  /** Stamp the transport status and retryability on an error, from the standard or the app's catalogue. */
+  function decorate(error: ActionError): ActionError {
+    if (isStandardErrorCode(error.code)) {
+      const spec = STANDARD_ERRORS[error.code];
+      return { ...error, http: spec.http, retryable: spec.retryable };
+    }
+    const spec = moduleErrors.get(error.code);
+    return { ...error, http: spec?.http ?? MODULE_ERROR_HTTP, retryable: spec?.retryable ?? false };
   }
 
   function validate(): void {
@@ -149,10 +164,15 @@ export function createActionRegistry<R, E extends object>(options: RegistryOptio
         .sort((a, b) => a.name.localeCompare(b.name) || a.version - b.version),
       events: [...events.values()].map(catalogEvent).sort((a, b) => a.type.localeCompare(b.type)),
       errors: [
-        ...Object.entries(STANDARD_ERRORS).map(([code, spec]) => ({ code, messages: { ...spec.messages } })),
+        ...Object.entries(STANDARD_ERRORS).map(([code, spec]) => ({
+          code,
+          messages: { ...spec.messages },
+          http: spec.http,
+          retryable: spec.retryable,
+        })),
         ...[...moduleErrors.entries()]
           .sort(([a], [b]) => a.localeCompare(b))
-          .map(([code, messages]) => ({ code, messages })),
+          .map(([code, spec]) => ({ code, messages: { ...spec.messages }, http: spec.http, retryable: spec.retryable })),
       ],
     };
   }
@@ -264,7 +284,7 @@ export function createActionRegistry<R, E extends object>(options: RegistryOptio
     if (missing.length > 0) throw refuse(ctx, 'PERMISSION_DENIED', { missing });
 
     const availability = await host.availability(entries.get(def) as CatalogEntry, ctx);
-    if (!availability.ok && !(availability.code === 'LICENCE_READ_ONLY' && def.kind === 'query'))
+    if (!availability.ok && !(availability.code === 'LICENCE_READ_ONLY' && runsWhenReadOnly(def)))
       throw refuse(ctx, availability.code);
 
     let settings: AssistantSettings | undefined;
@@ -414,6 +434,7 @@ export function createActionRegistry<R, E extends object>(options: RegistryOptio
         error = standardError('INTERNAL', ctx.locale, { requestId: ctx.requestId });
       }
     }
+    error = decorate(error);
     if (def && isAudited(def, ctx)) {
       await safeAuditOutside(
         ctx,
@@ -459,7 +480,7 @@ export function createActionRegistry<R, E extends object>(options: RegistryOptio
         availability = await host.availability(entry, ctx);
         availabilityByModule.set(def.module, availability);
       }
-      if (!availability.ok && !(availability.code === 'LICENCE_READ_ONLY' && def.kind === 'query')) continue;
+      if (!availability.ok && !(availability.code === 'LICENCE_READ_ONLY' && runsWhenReadOnly(def))) continue;
       out.push(entry);
     }
     out.sort((a, b) => a.name.localeCompare(b.name) || a.version - b.version);
@@ -546,6 +567,7 @@ export function createActionRegistry<R, E extends object>(options: RegistryOptio
       }
 
       const hash = key !== undefined ? await inputHash(d.name, d.version, input) : undefined;
+      const scope: IdempotencyScope = { action: d.name, version: d.version };
 
       // Step-up: the assistant, a financial action, and a policy with a limit.
       const settings = gated.settings;
@@ -560,12 +582,13 @@ export function createActionRegistry<R, E extends object>(options: RegistryOptio
         // A retry of an execute that already committed replays, whatever the data looks like now.
         if (key !== undefined && hash !== undefined) {
           const peek = await host.transaction(ctx, { rollback: true, readOnly: false }, (tx) =>
-            tx.claimIdempotency(key, hash),
+            tx.claimIdempotency(key, hash, scope),
           );
           if (peek.state === 'done') {
             const m = meta(ctx, d, req);
             m.replayed = true;
             m.events = [...peek.result.events];
+            if (peek.result.redacted) m.redacted = true;
             await safeAuditOutside(ctx, auditEntry(ctx, d, input, 'replayed', started, { idempotencyKey: key }));
             return { ok: true, data: peek.result.data, meta: m };
           }
@@ -595,8 +618,9 @@ export function createActionRegistry<R, E extends object>(options: RegistryOptio
 
       const outcome = await host.transaction(ctx, { rollback: false, readOnly: false }, async (tx) => {
         if (key !== undefined && hash !== undefined) {
-          const claim = await tx.claimIdempotency(key, hash);
-          if (claim.state === 'done') return { replayed: true, data: claim.result.data, events: claim.result.events };
+          const claim = await tx.claimIdempotency(key, hash, scope);
+          if (claim.state === 'done')
+            return { replayed: true, data: claim.result.data, events: claim.result.events, redacted: claim.result.redacted === true };
           if (claim.state === 'running') throw refuse(ctx, 'IDEMPOTENCY_IN_PROGRESS');
           if (claim.state === 'mismatch') throw refuse(ctx, 'IDEMPOTENCY_KEY_REUSED');
         }
@@ -617,8 +641,14 @@ export function createActionRegistry<R, E extends object>(options: RegistryOptio
           }
         }
 
-        await tx.audit(auditEntry(ctx, d, input, 'ok', started, { result, idempotencyKey: key }));
-        if (key !== undefined && hash !== undefined) await tx.storeIdempotency(key, hash, { data: result, events: emitted });
+        // Secrets shown once go to the caller only — never into the audit log or the idempotency store.
+        const kept = redactWithFlag(result, d.sensitiveOutput);
+        await tx.audit(auditEntry(ctx, d, input, 'ok', started, { result: kept.value, idempotencyKey: key }));
+        if (key !== undefined && hash !== undefined) {
+          const stored: StoredResult = { data: kept.value, events: emitted };
+          if (kept.changed) stored.redacted = true;
+          await tx.storeIdempotency(key, hash, stored, scope);
+        }
         if (ctx.source === 'assistant') {
           await tx.meter({
             meter: 'assistant.actions',
@@ -629,12 +659,13 @@ export function createActionRegistry<R, E extends object>(options: RegistryOptio
             requestId: ctx.requestId,
           });
         }
-        return { replayed: false, data: result, events: emitted };
+        return { replayed: false, data: result, events: emitted, redacted: false };
       });
 
       const m = meta(ctx, d, req);
       m.replayed = outcome.replayed;
       m.events = [...outcome.events];
+      if (outcome.replayed && outcome.redacted) m.redacted = true;
       if (outcome.replayed) {
         await safeAuditOutside(ctx, auditEntry(ctx, d, input, 'replayed', started, { idempotencyKey: key }));
       } else if (outcome.events.length > 0) {
@@ -676,22 +707,34 @@ function rowCount(result: unknown): number {
   return 1;
 }
 
-/** Copy `input` with each sensitive path (top-level key or dotted path) replaced by "[redacted]". */
-export function redact(input: unknown, paths: readonly string[] | undefined): unknown {
-  if (!paths || paths.length === 0) return input;
-  const copy: unknown = input === undefined ? undefined : JSON.parse(JSON.stringify(input));
-  for (const path of paths) redactPath(copy, path.split('.'));
-  return copy;
+/** Copy `value` with each sensitive path (top-level key or dotted path) replaced by "[redacted]". */
+export function redact(value: unknown, paths: readonly string[] | undefined): unknown {
+  return redactWithFlag(value, paths).value;
 }
 
-function redactPath(node: unknown, segments: string[]): void {
+/** Like `redact`, and says whether anything was actually replaced. */
+export function redactWithFlag(value: unknown, paths: readonly string[] | undefined): { value: unknown; changed: boolean } {
+  if (!paths || paths.length === 0 || value === undefined) return { value, changed: false };
+  const copy: unknown = JSON.parse(JSON.stringify(value));
+  let changed = false;
+  for (const path of paths) changed = redactPath(copy, path.split('.')) || changed;
+  return { value: copy, changed };
+}
+
+function redactPath(node: unknown, segments: string[]): boolean {
   if (Array.isArray(node)) {
-    for (const item of node) redactPath(item, segments);
-    return;
+    let changed = false;
+    for (const item of node) changed = redactPath(item, segments) || changed;
+    return changed;
   }
-  if (!isRecord(node) || segments.length === 0) return;
+  if (!isRecord(node) || segments.length === 0) return false;
   const [head, ...rest] = segments as [string, ...string[]];
-  if (!(head in node)) return;
-  if (rest.length === 0) node[head] = '[redacted]';
-  else redactPath(node[head], rest);
+  if (!(head in node)) return false;
+  if (rest.length > 0) return redactPath(node[head], rest);
+  node[head] = '[redacted]';
+  return true;
+}
+
+function runsWhenReadOnly(def: AnyAction): boolean {
+  return def.kind === 'query' || def.availableWhenReadOnly === true;
 }

@@ -12,6 +12,8 @@ export interface ResultMeta {
   events: string[];
   /** E.g. "this version is deprecated, use X". */
   warnings?: LocalizedText[];
+  /** True on a replay whose stored output had secrets (`sensitiveOutput`) redacted. */
+  redacted?: boolean;
 }
 
 export type ActionResult<O> =

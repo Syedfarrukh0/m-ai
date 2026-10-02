@@ -21,9 +21,39 @@ export const WELL_KNOWN_ACTIONS = {
   usageRecord: 'assistant.usage.record',
   /** command · send a message on a channel (only to the caller's own conversation for alert tokens). */
   messagingSend: 'messaging.send',
-  /** command · render a document (invoice, ledger statement, receipt) to PDF; returns a file id. */
+  /**
+   * @deprecated since 0.1.1 — rendering is one action per document kind,
+   * `documents.<kind>.render` (see WELL_KNOWN_ACTION_PATTERNS.documentsRender),
+   * each with its own static permission. Removed in 0.2.0.
+   */
   documentsRender: 'documents.render',
 } as const;
+
+/**
+ * Families of actions the assistant relies on, one action per entity or kind,
+ * so each carries its own static permission and the catalog stays exact. The
+ * assistant finds them by name pattern and by tags.
+ */
+export const WELL_KNOWN_ACTION_PATTERNS = {
+  /** query · `masters.customer.search`, `masters.product.search`… Input SearchInput, output SearchOutput. Tags: the entity + 'search'. */
+  search: 'masters.<entity>.search',
+  /**
+   * command · `documents.invoice.render`, `documents.statement.render`,
+   * `documents.receipt.render`… Renders to PDF and returns a file id. Tags:
+   * 'documents' + 'render'. Usually `availableWhenReadOnly: true`.
+   */
+  documentsRender: 'documents.<kind>.render',
+} as const;
+
+/** Whether an action name belongs to a well-known family, e.g. matchesActionPattern('documents.invoice.render', 'documents.<kind>.render'). */
+export function matchesActionPattern(name: string, pattern: string): boolean {
+  const want = pattern.split('.');
+  const have = name.split('.');
+  return (
+    want.length === have.length &&
+    want.every((seg, i) => (/^<[a-z]+>$/.test(seg) ? /^[a-z][a-z0-9-]*$/.test(have[i] ?? '') : seg === have[i]))
+  );
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Settings, policy and consent — stored by the app, read by the assistant

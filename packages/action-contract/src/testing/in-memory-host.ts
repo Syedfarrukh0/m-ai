@@ -36,7 +36,7 @@ interface State<D> {
   outbox: OutboxRow[];
   audit: AuditEntry[];
   usage: Array<UsageRecord & { tenantId: string }>;
-  idempotency: Record<string, { hash: string; result?: StoredResult }>;
+  idempotency: Record<string, { hash: string; action: string; version: number; result?: StoredResult }>;
   confirmations: Record<string, string | null>;
 }
 
@@ -105,6 +105,10 @@ export class InMemoryHost<D, R, E extends object = Record<string, unknown>>
   }
   get usage(): ReadonlyArray<UsageRecord & { tenantId: string }> {
     return this.state.usage;
+  }
+  /** Idempotency rows by `<tenantId>:<key>`. */
+  get idempotencyRows(): Readonly<State<D>['idempotency']> {
+    return this.state.idempotency;
   }
 
   /** Everything a transaction may change, minus the audit log and usage (which outside writes append to). */
@@ -235,18 +239,23 @@ export class InMemoryHost<D, R, E extends object = Record<string, unknown>>
       audit: async (entry) => {
         this.state.audit.push(structuredClone(entry));
       },
-      claimIdempotency: async (key, hash): Promise<IdempotencyClaim> => {
+      claimIdempotency: async (key, hash, scope): Promise<IdempotencyClaim> => {
         const row = this.state.idempotency[tenantKey(key)];
         if (!row) {
-          this.state.idempotency[tenantKey(key)] = { hash };
+          this.state.idempotency[tenantKey(key)] = { hash, action: scope.action, version: scope.version };
           return { state: 'new' };
         }
         if (row.hash !== hash) return { state: 'mismatch' };
         if (!row.result) return { state: 'running' };
         return { state: 'done', result: structuredClone(row.result) };
       },
-      storeIdempotency: async (key, hash, result) => {
-        this.state.idempotency[tenantKey(key)] = { hash, result: structuredClone(result) };
+      storeIdempotency: async (key, hash, result, scope) => {
+        this.state.idempotency[tenantKey(key)] = {
+          hash,
+          action: scope.action,
+          version: scope.version,
+          result: structuredClone(result),
+        };
       },
       consumeConfirmation: async (confirmationId, idempotencyKey) => {
         const k = tenantKey(confirmationId);
