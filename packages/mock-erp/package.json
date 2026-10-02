@@ -1,0 +1,26 @@
+{
+  "name": "@m-ai/mock-erp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A small distributor ERP built on @m-ai/action-contract, for developing and testing M.Ai without the real ERP.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@m-ai/action-contract": "workspace:*"
+  },
+  "peerDependencies": {
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11",
+    "zod": "4.6.5"
+  }
+}

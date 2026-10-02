@@ -19,6 +19,6 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "verify": "pnpm -r typecheck && pnpm -r test && pnpm -r build"
+    "verify": "pnpm -r build && pnpm -r typecheck && pnpm -r test"
   }
 }

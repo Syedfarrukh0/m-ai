@@ -12,20 +12,29 @@ The assistant **never touches an app's database and never calculates numbers its
 
 | Package | What it is | Status |
 |---|---|---|
-| [`@m-ai/action-contract`](packages/action-contract) | The SDK an app installs to become assistant-ready: action definitions, the registry (preview → confirm → execute), catalog, delegation, webhooks. Public, MIT. | **v0.1.0** |
-| `@m-ai/assistant-core` | The brain: conversation, tool selection from the catalog, memory, runbooks, trust ladder. | next |
-| `@m-ai/channels` | WhatsApp / web chat / voice adapters for the assistant service. | later |
+| [`@m-ai/action-contract`](packages/action-contract) | The SDK an app installs to become assistant-ready: action definitions, the registry (preview → confirm → execute), catalog, delegation, webhooks. Public, MIT. | **0.1.1** — vendored by the ERP |
+| [`@m-ai/assistant-core`](packages/assistant-core) | The brain: conversation, tool selection from the catalog, confirmations, step-up, the numbers guard, Urdu / Roman Urdu, usage. | **0.1.0** |
+| [`@m-ai/mock-erp`](packages/mock-erp) | A small distributor ERP on the contract, for building and testing without the real ERP. Private. | 0.1.0 |
+| `@m-ai/channels` | WhatsApp / web chat / voice adapters, and the assistant service. | next |
 
 The first app is the distribution ERP. It installs `action-contract`, and the assistant talks to it over `/actions/*` and signed webhooks. The ERP never installs the assistant.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Develop
 
 ```sh
 pnpm install
-pnpm verify      # typecheck + tests + build, all packages
+pnpm verify      # build + typecheck + tests, all packages
 ```
 
 Requires Node ≥ 20 and pnpm 10.
+
+To talk to it in a terminal, against the mock ERP:
+
+```sh
+ANTHROPIC_API_KEY=sk-... M_AI_MODEL=<model id> pnpm --filter @m-ai/assistant-core chat
+```
 
 ## Release `action-contract`
 
