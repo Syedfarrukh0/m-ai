@@ -1,4 +1,7 @@
 import type { ContentBlock, ModelClient, ModelRequest, ModelResponse, TextBlock, ToolCallBlock } from './model.js';
+import { ModelError } from './model.js';
+
+export { ModelError } from './model.js';
 
 export interface AnthropicOptions {
   apiKey: string;
@@ -11,17 +14,6 @@ export interface AnthropicOptions {
   cache?: boolean;
   /** Request timeout. Default 60 s. */
   timeoutMs?: number;
-}
-
-export class ModelError extends Error {
-  constructor(
-    message: string,
-    readonly status: number | undefined,
-    readonly retryable: boolean,
-  ) {
-    super(message);
-    this.name = 'ModelError';
-  }
 }
 
 interface AnthropicBlock {

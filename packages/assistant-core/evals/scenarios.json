@@ -1,0 +1,141 @@
+[
+  {
+    "name": "today's sales (Roman Urdu)",
+    "turns": [
+      {
+        "say": "aaj ki sale kitni hui?",
+        "expect": {
+          "status": "answered",
+          "language": "ur-Latn",
+          "calls": ["reports.sales.summary"],
+          "callInput": { "reports.sales.summary": { "from": "2026-10-02", "to": "2026-10-02" } },
+          "figures": ["2124"]
+        }
+      }
+    ]
+  },
+  {
+    "name": "this month by booker",
+    "turns": [
+      {
+        "say": "is mahine booker-wise sale batao",
+        "expect": {
+          "calls": ["reports.sales.summary"],
+          "callInput": { "reports.sales.summary": { "from": "2026-10-01", "groupBy": "booker" } },
+          "figures": ["10620", "2124"],
+          "includes": ["Ali", "Usman"]
+        }
+      }
+    ]
+  },
+  {
+    "name": "total receivables",
+    "turns": [
+      {
+        "say": "total wasooli kitni baqi hai?",
+        "expect": { "calls": ["reports.receivables.outstanding"], "figures": ["89914"] }
+      }
+    ]
+  },
+  {
+    "name": "who owes the most",
+    "turns": [
+      {
+        "say": "sab se zyada udhaar kis ka hai?",
+        "expect": { "calls": ["reports.receivables.outstanding"], "figures": ["52620"], "includes": ["Al-Noor"] }
+      }
+    ]
+  },
+  {
+    "name": "ambiguous name is asked about, not guessed",
+    "turns": [
+      {
+        "say": "Madina ko 5 carton Sprite bhej do",
+        "expect": {
+          "status": "answered",
+          "calls": ["masters.customer.search"],
+          "noCalls": ["sales.invoice.post"],
+          "includes": ["Madina Store", "Madina Traders"]
+        }
+      }
+    ],
+    "after": { "invoices": 4 }
+  },
+  {
+    "name": "order: preview, confirm, execute",
+    "turns": [
+      {
+        "say": "Madina Store ko 10 carton Pepsi ka order laga do",
+        "expect": {
+          "status": "awaiting_confirmation",
+          "pending": "sales.invoice.post",
+          "callInput": { "sales.invoice.post": { "customerId": "0192d000-0000-7000-8000-000000000101" } },
+          "figures": ["5310"]
+        }
+      },
+      { "say": "haan", "expect": { "executed": ["sales.invoice.post"], "includes": ["INV-0005"] } }
+    ],
+    "after": { "invoices": 5 }
+  },
+  {
+    "name": "order cancelled with nahi",
+    "turns": [
+      { "say": "Metro ko 2 carton 7up", "expect": { "status": "awaiting_confirmation", "pending": "sales.invoice.post" } },
+      { "say": "nahi rehne do", "expect": { "status": "cancelled" } }
+    ],
+    "after": { "invoices": 4 }
+  },
+  {
+    "name": "not enough stock is explained",
+    "turns": [
+      {
+        "say": "Metro ko 50 carton Aquafina",
+        "expect": { "status": "answered", "calls": ["sales.invoice.post"], "figures": ["15"] }
+      }
+    ],
+    "after": { "invoices": 4 }
+  },
+  {
+    "name": "English",
+    "turns": [
+      { "say": "What are today's total sales?", "expect": { "language": "en", "calls": ["reports.sales.summary"], "figures": ["2124"] } }
+    ]
+  },
+  {
+    "name": "Urdu script",
+    "turns": [
+      { "say": "آج کی سیل کتنی ہوئی؟", "expect": { "language": "ur", "calls": ["reports.sales.summary"], "figures": ["2124"] } }
+    ]
+  },
+  {
+    "name": "invoice lookup",
+    "turns": [
+      {
+        "say": "INV-0002 ki detail dikhao",
+        "expect": { "calls": ["sales.invoice.get"], "callInput": { "sales.invoice.get": { "invoiceNo": "INV-0002" } }, "figures": ["31860"] }
+      }
+    ]
+  },
+  {
+    "name": "stock question",
+    "turns": [
+      { "say": "Aquafina ka stock kitna hai?", "expect": { "calls": ["masters.product.search"], "figures": ["15"] } }
+    ]
+  },
+  {
+    "name": "booker cannot see sales reports",
+    "user": "booker",
+    "turns": [
+      {
+        "say": "is mahine ki total sale kitni hai?",
+        "expect": { "noCalls": ["reports.sales.summary"], "noFigures": ["12744", "10620"] }
+      }
+    ]
+  },
+  {
+    "name": "no invented averages",
+    "turns": [
+      { "say": "is mahine invoice ki average value kya hai?", "expect": { "verifiedNumbers": true } }
+    ]
+  }
+]

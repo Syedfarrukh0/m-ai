@@ -37,10 +37,11 @@ export function toToolSpec(entry: CatalogEntry): ToolSpec {
 }
 
 /**
- * Words people use (English, Roman Urdu, Urdu) → the tags and name parts
- * apps use. Extend per app vocabulary.
+ * Everyday business words people use (English, Roman Urdu, Urdu) → the tags
+ * and name parts apps commonly use. Apps add their own with the assistant's
+ * `synonyms` option (or replace these with `replaceSynonyms`).
  */
-export const SYNONYMS: Record<string, string[]> = {
+export const DEFAULT_SYNONYMS: Record<string, string[]> = {
   sale: ['sales'], sales: ['sales'], bikri: ['sales'], sell: ['sales'], sold: ['sales'], 'بکری': ['sales'], 'سیل': ['sales'],
   order: ['orders', 'sales', 'invoices'], orders: ['orders', 'sales', 'invoices'], 'آرڈر': ['orders', 'sales'],
   invoice: ['invoices'], invoices: ['invoices'], bill: ['invoices'], 'انوائس': ['invoices'], 'بل': ['invoices'],
@@ -68,13 +69,18 @@ function tokens(text: string): string[] {
  * names to ids with them), then the actions whose tags, name or description
  * best match the conversation's recent words, up to `max`.
  */
-export function selectTools(catalog: readonly CatalogEntry[], recentText: string, max = 24): CatalogEntry[] {
+export function selectTools(
+  catalog: readonly CatalogEntry[],
+  recentText: string,
+  max = 24,
+  synonyms: Record<string, string[]> = DEFAULT_SYNONYMS,
+): CatalogEntry[] {
   const visible = catalog.filter((e) => !HIDDEN_ACTIONS.has(e.name) && !e.deprecated);
   const words = tokens(recentText);
   const wanted = new Set<string>();
   for (const w of words) {
     wanted.add(w);
-    for (const s of SYNONYMS[w] ?? []) wanted.add(s);
+    for (const s of synonyms[w] ?? []) wanted.add(s);
   }
   const scored = visible.map((e) => {
     let score = 0;

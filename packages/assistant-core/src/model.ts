@@ -72,6 +72,18 @@ export interface ModelClient {
   complete(request: ModelRequest): Promise<ModelResponse>;
 }
 
+/** A model call that failed. `retryable` for rate limits, overload and network errors. */
+export class ModelError extends Error {
+  constructor(
+    message: string,
+    readonly status: number | undefined,
+    readonly retryable: boolean,
+  ) {
+    super(message);
+    this.name = 'ModelError';
+  }
+}
+
 export function textOf(content: ReadonlyArray<ContentBlock>): string {
   return content
     .filter((b): b is TextBlock => b.type === 'text')

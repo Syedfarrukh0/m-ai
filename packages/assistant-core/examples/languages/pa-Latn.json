@@ -1,0 +1,63 @@
+{
+  "code": "pa-Latn",
+  "name": "Roman Punjabi (example)",
+  "markers": [
+    "kinni",
+    "kinna",
+    "tusi",
+    "tuhada",
+    "sadda",
+    "hoyi",
+    "hoya",
+    "ajj",
+    "dasso",
+    "kithe",
+    "ae"
+  ],
+  "weakMarkers": [
+    "da",
+    "di",
+    "de",
+    "nu"
+  ],
+  "yes": [
+    "aho",
+    "haanji",
+    "theek ae",
+    "kar deo"
+  ],
+  "no": [
+    "nai ji",
+    "rehn deo",
+    "na karo"
+  ],
+  "yesTail": [
+    "ji",
+    "paaji",
+    "please"
+  ],
+  "noTail": [
+    "ji",
+    "paaji"
+  ],
+  "replyRule": "Reply in Roman Punjabi (Punjabi written in English letters). Keep names, codes and numbers exactly as the tools return them.",
+  "appText": "en",
+  "phrases": {
+    "confirmQuestion": "Kar deyan? \"aho\" ya \"nai ji\" likho.",
+    "confirmIntro": "Eh hovega:",
+    "warnings": "Dhyan dio:",
+    "stepUpAhead": "Eh raqam company di had ton vadh ae, is layi app vich tuhadi approval vi chahidi ae.",
+    "stepUpWaiting": "App vich (bell vich) approve karo, phir mainu \"ho gaya\" likho.",
+    "stepUpStillWaiting": "Eh hun vi app vich tuhadi approval di udeek vich ae. Othe approve karo, ya \"nai ji\" likh ke cancel karo.",
+    "cancelled": "Theek ae, cancel kar ditta. Kuch nahi badleya.",
+    "changed": "Tuhade vekhan ton baad detail badal gayi ae. Navi detail eh ae:",
+    "expired": "Oh confirmation purani ho gayi si, is layi dobara check kita. Eh rahi:",
+    "disabled": "Tuhadi company layi assistant band ae. Admin settings vich on kar sakda ae.",
+    "quota": "Is mahine de assistant messages di had poori ho gayi ae. Admin ton message pack lagwao.",
+    "unavailable": "Hun system naal rabta nahi ho reha. Ik minute baad dobara koshish karo.",
+    "unverified": "(Upar de kuch figures system ton tasdeeq nahi ho sake. Bharosa karan ton pehlan check kar lao.)",
+    "noAnswer": "Maaf karna, main eh poora nahi kar sakeya. Kise hor tarah dasso?",
+    "yesLabel": "Aho",
+    "noLabel": "Nai"
+  }
+}

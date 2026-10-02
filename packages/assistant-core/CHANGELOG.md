@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.2.0 — 2026-10-03
+
+### Works with any software
+- **App-neutral prompt.** No trade wording.
+- **`instructions` option.** The app's own guidance for the model.
+- **`synonyms` / `replaceSynonyms` options.** The app's own words mapped to its tags.
+
+### Any model
+- `createOpenAICompatibleModel` — for OpenAI, OpenAI-compatible providers and local servers (Ollama, vLLM). It maps tool results to `tool` messages, handles bad JSON arguments and reads cached tokens.
+- Model calls retry retryable errors (rate limit, overload, network), with backoff.
+- A hard failure gives an "unavailable" reply and keeps the conversation valid.
+
+### Any language
+- **Language packs.** Fixed sentences, yes/no words and detection words live in JSON-checkable packs.
+- **Built in:** English, Urdu, Roman Urdu. Add more with `languages` or `M_AI_LANGUAGE_PACKS`. An example Roman Punjabi pack is in `examples/languages`.
+- **Detection is generic:** by script first, then by marker words.
+- **Yes/no comes from every pack.** A word that means yes in one pack and no in another counts as neither.
+- **Buttons.** `TurnInput.choice` and `TurnResult.pending.options`.
+
+### Configuration
+- `configFromEnv`, `loadEnvFile`, `loadLanguagePacks`, `ConfigError`, which lists every problem at once.
+- `.env.example` at the repo root.
+
+### Safety
+- Only the first tool call of a model message is kept: one step at a time, always.
+
+### Observability
+- The `onEvent` hook reports the language, tools offered, model calls, tool calls and results, number checks, previews, executes and notes.
+
+### Terminal
+- `chat`:
+  - providers come from `.env`;
+  - `/debug` shows every step;
+  - `/user`, `/limit`, `/approve`, `/lang`, `/off`, `/on`, `/quota`, `/yes`, `/no`, `/data`, `/reset`;
+  - piped input is buffered.
+- `demo`: offline, no key.
+- `eval`: 14 accuracy scenarios with `--repeat`, `--only`, `--verbose`; exits 1 on any failed check.
+
 ## 0.1.0 — 2026-10-02
 
 First version, built against `@m-ai/action-contract` 0.1.1 and the mock ERP.

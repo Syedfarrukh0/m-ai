@@ -3,23 +3,21 @@ import type {
   CatalogEntry,
   CoreContextOutput,
   ExecuteRequest,
-  Locale,
   LocalizedText,
   PreviewResult,
 } from '@m-ai/action-contract';
 import { AssistantSettings, CoreContextOutput as CoreContextSchema, WELL_KNOWN_ACTIONS } from '@m-ai/action-contract';
 import type { ActionsClient } from './actions-client.js';
 import { TransportError } from './actions-client.js';
-import { detectLanguage, parseConfirmation } from './language.js';
+import type { LanguagePack, PhraseKey } from './languages.js';
+import { BUILTIN_LANGUAGES, createLanguages } from './languages.js';
 import type { ContentBlock, ModelClient, ModelMessage, ToolCallBlock, ToolSpec } from './model.js';
-import { textOf } from './model.js';
+import { ModelError, textOf } from './model.js';
 import { unverifiedNumbers } from './numbers.js';
-import type { PhraseKey } from './phrases.js';
-import { confirmationMessage, phrase, pick } from './phrases.js';
 import { REMEMBER_TOOL, buildSystemPrompt } from './prompt.js';
 import type { ConversationState, ConversationStore, NoteStore, PendingAction } from './store.js';
 import { MAX_NOTE_LENGTH, createMemoryConversationStore, createMemoryNoteStore } from './store.js';
-import { selectTools, toToolName, toToolSpec } from './tools.js';
+import { DEFAULT_SYNONYMS, selectTools, toToolName, toToolSpec } from './tools.js';
 import type { ModelPricing, TurnUsage } from './usage.js';
 import { addUsage, costUsd, emptyUsage } from './usage.js';
 
@@ -39,11 +37,36 @@ export interface AssistantOptions {
   maxToolResultChars?: number;
   /** Output tokens per model call. Default 1024. */
   maxTokens?: number;
+  /** Retries of a model call that failed with a retryable error (rate limit, overload, network). Default 2. */
+  modelRetries?: number;
+  /** First retry delay, doubled each time. Default 800 ms. */
+  retryDelayMs?: number;
   now?: () => Date;
   newId?: () => string;
   /** Called for errors the person doesn't see (usage recording, transport). */
   onError?: (error: unknown, where: string) => void;
+  /** Language packs. Default: English, Urdu, Roman Urdu. Add packs to add languages. */
+  languages?: readonly LanguagePack[];
+  /** The app's own words → its tags and name parts, merged over the built-in business words. */
+  synonyms?: Record<string, string[]>;
+  /** Use only `synonyms`, not the built-in words. */
+  replaceSynonyms?: boolean;
+  /** The app's guidance for the model, in plain language ("Customers are shops; bookers take orders"). */
+  instructions?: string;
+  /** Everything the assistant does, step by step — for logs and the terminal's /debug. */
+  onEvent?: (event: AssistantEvent) => void;
 }
+
+export type AssistantEvent =
+  | { type: 'language'; code: string }
+  | { type: 'tools'; offered: string[] }
+  | { type: 'model'; step: number; inputTokens: number; outputTokens: number }
+  | { type: 'tool_call'; action: string; input: unknown }
+  | { type: 'tool_result'; action: string; ok: boolean; code?: string; content: string }
+  | { type: 'numbers_check'; unverified: string[]; retrying: boolean }
+  | { type: 'preview'; action: string; ok: boolean; stepUp?: boolean; code?: string }
+  | { type: 'execute'; action: string; ok: boolean; code?: string }
+  | { type: 'remember'; note: string };
 
 export interface TurnInput {
   /** Stable per chat (a WhatsApp number, a web chat session). */
@@ -54,6 +77,8 @@ export interface TurnInput {
   /** Bound to this person's delegated token for this turn. */
   actions: ActionsClient;
   turnId?: string;
+  /** A button press ("Yes" / "No") from channels that have buttons. Wins over the text. */
+  choice?: 'yes' | 'no';
 }
 
 export type TurnStatus =
@@ -67,10 +92,17 @@ export type TurnStatus =
 export interface TurnResult {
   turnId: string;
   reply: string;
-  language: Locale;
+  /** The language pack code used for the reply. */
+  language: string;
   status: TurnStatus;
-  /** What is waiting for the person, for channels that show buttons. */
-  pending?: { action: string; summary: LocalizedText; expiresAt?: string; stage: PendingAction['stage'] };
+  /** What is waiting for the person. Channels with buttons show `options` and send back `choice`. */
+  pending?: {
+    action: string;
+    summary: LocalizedText;
+    expiresAt?: string;
+    stage: PendingAction['stage'];
+    options: Array<{ value: 'yes' | 'no'; label: string }>;
+  };
   /** Changes executed in this turn. */
   executed: Array<{ action: string; ok: boolean; code?: string }>;
   usage: TurnUsage;
@@ -107,6 +139,24 @@ export function createAssistant(options: AssistantOptions): Assistant {
   const now = options.now ?? (() => new Date());
   const newId = options.newId ?? (() => globalThis.crypto.randomUUID());
   const onError = options.onError ?? (() => {});
+  const emit = options.onEvent ?? (() => {});
+  const modelRetries = options.modelRetries ?? 2;
+  const retryDelayMs = options.retryDelayMs ?? 800;
+
+  async function callModel(request: Parameters<ModelClient['complete']>[0]) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await model.complete(request);
+      } catch (e) {
+        const retryable = e instanceof ModelError ? e.retryable : false;
+        if (!retryable || attempt >= modelRetries) throw e;
+        onError(e, `model (retry ${attempt + 1})`);
+        await new Promise((r) => setTimeout(r, retryDelayMs * 2 ** attempt));
+      }
+    }
+  }
+  const langs = createLanguages(options.languages ?? BUILTIN_LANGUAGES);
+  const synonyms = options.replaceSynonyms ? { ...options.synonyms } : { ...DEFAULT_SYNONYMS, ...options.synonyms };
 
   async function handleTurn(input: TurnInput): Promise<TurnResult> {
     const turnId = input.turnId ?? newId();
@@ -123,7 +173,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
     const finish = async (
       reply: string,
       status: TurnStatus,
-      language: Locale,
+      language: string,
       extra: { unverified?: string[]; record?: boolean } = {},
     ): Promise<TurnResult> => {
       conv.language = language;
@@ -142,7 +192,15 @@ export function createAssistant(options: AssistantOptions): Assistant {
         unverifiedNumbers: extra.unverified ?? [],
       };
       if (conv.pending) {
-        const p: NonNullable<TurnResult['pending']> = { action: conv.pending.action, summary: conv.pending.summary, stage: conv.pending.stage };
+        const p: NonNullable<TurnResult['pending']> = {
+          action: conv.pending.action,
+          summary: conv.pending.summary,
+          stage: conv.pending.stage,
+          options: [
+            { value: 'yes', label: langs.phrase('yesLabel', language) },
+            { value: 'no', label: langs.phrase('noLabel', language) },
+          ],
+        };
         if (conv.pending.confirmation) p.expiresAt = conv.pending.confirmation.expiresAt;
         result.pending = p;
       }
@@ -157,34 +215,35 @@ export function createAssistant(options: AssistantOptions): Assistant {
         const parsed = CoreContextSchema.safeParse(r.data);
         if (parsed.success) context = parsed.data;
       } else if (r.error.code === 'ASSISTANT_POLICY_DENIED') {
-        const language = detectLanguage(input.text, conv.language ?? 'en');
-        return finish(phrase('disabled', language), 'refused', language, { record: false });
+        const language = langs.detect(input.text, conv.language ?? 'en');
+        return finish(langs.phrase('disabled', language), 'refused', language, { record: false });
       }
     } catch (e) {
       onError(e, 'context');
-      const language = detectLanguage(input.text, conv.language ?? 'en');
-      return finish(phrase('unavailable', language), 'unavailable', language, { record: false });
+      const language = langs.detect(input.text, conv.language ?? 'en');
+      return finish(langs.phrase('unavailable', language), 'unavailable', language, { record: false });
     }
 
     const settings = context?.assistant?.settings ?? { ...AssistantSettings.parse({}), enabled: true };
-    const language: Locale =
-      settings.language === 'auto' ? detectLanguage(input.text, conv.language ?? context?.user.locale ?? 'en') : settings.language;
+    const language: string =
+      settings.language === 'auto' ? langs.detect(input.text, conv.language ?? context?.user.locale ?? 'en') : settings.language;
+    emit({ type: 'language', code: language });
 
-    if (!settings.enabled) return finish(phrase('disabled', language), 'refused', language, { record: false });
-    if (context?.assistant?.quota.state === 'exhausted') return finish(phrase('quota', language), 'refused', language, { record: false });
+    if (!settings.enabled) return finish(langs.phrase('disabled', language), 'refused', language, { record: false });
+    if (context?.assistant?.quota.state === 'exhausted') return finish(langs.phrase('quota', language), 'refused', language, { record: false });
 
     // ── 2. A change waiting for this person ─────────────────────────────────
     const prefix: ContentBlock[] = [];
     if (conv.pending) {
       const p = conv.pending;
-      const answer = parseConfirmation(input.text);
+      const answer = input.choice ?? langs.parseConfirmation(input.text);
 
       if (answer === 'no') {
         conv.messages.push({
           role: 'user',
           content: [toolResult(p.toolCallId, 'The person declined. Nothing was executed.'), { type: 'text', text: input.text }],
         });
-        const reply = phrase('cancelled', language);
+        const reply = langs.phrase('cancelled', language);
         conv.messages.push({ role: 'assistant', content: [{ type: 'text', text: reply }] });
         delete conv.pending;
         return finish(reply, 'cancelled', language);
@@ -204,15 +263,15 @@ export function createAssistant(options: AssistantOptions): Assistant {
             summary: outcome.preview.preview.summary,
             preview: outcome.preview.preview,
           };
-          const reply = confirmationMessage(outcome.preview.preview, language, { stepUp: outcome.preview.stepUp.required, lead: outcome.lead });
+          const reply = langs.confirmationMessage(outcome.preview.preview, language, { stepUp: outcome.preview.stepUp.required, lead: outcome.lead });
           return finish(reply, 'awaiting_confirmation', language);
         }
         if (outcome.kind === 'step-up') {
           const lead: PhraseKey = p.stage === 'step-up' ? 'stepUpStillWaiting' : 'stepUpWaiting';
           conv.pending = { ...p, stage: 'step-up' };
-          return finish(phrase(lead, language), 'awaiting_approval', language);
+          return finish(langs.phrase(lead, language), 'awaiting_approval', language);
         }
-        if (outcome.kind === 'unavailable') return finish(phrase('unavailable', language), 'unavailable', language, { record: false });
+        if (outcome.kind === 'unavailable') return finish(langs.phrase('unavailable', language), 'unavailable', language, { record: false });
         executed.push(outcome.result.ok ? { action: p.action, ok: true } : { action: p.action, ok: false, code: outcome.result.error.code });
         prefix.push(toolResult(p.toolCallId, renderResult(outcome.result, maxResult), !outcome.result.ok));
         delete conv.pending;
@@ -225,17 +284,19 @@ export function createAssistant(options: AssistantOptions): Assistant {
       catalog = (await actions.list()).actions;
     } catch (e) {
       onError(e, 'list');
-      return finish(phrase('unavailable', language), 'unavailable', language, { record: false });
+      return finish(langs.phrase('unavailable', language), 'unavailable', language, { record: false });
     }
     const recentText = [input.text, ...recentUserTexts(conv.messages, 3)].join(' ');
-    const tools = selectTools(catalog, recentText, maxTools);
+    const tools = selectTools(catalog, recentText, maxTools, synonyms);
+    emit({ type: 'tools', offered: tools.map((t) => t.name) });
     const byTool = new Map(tools.map((e) => [toToolName(e.name), e]));
     const toolSpecs = [...tools.map(toToolSpec), REMEMBER_SPEC];
     const system = buildSystemPrompt({
       settings,
       context,
-      language,
+      replyRule: langs.replyRule(language),
       notes: await notes.list(input.tenantId, input.userId),
+      instructions: options.instructions,
     });
 
     conv.messages.push({ role: 'user', content: [...prefix, { type: 'text', text: input.text }] });
@@ -246,16 +307,29 @@ export function createAssistant(options: AssistantOptions): Assistant {
     let checkAt: number | undefined;
 
     for (let step = 0; step < maxSteps; step++) {
-      const res = await model.complete({ system, messages: trimHistory(conv.messages, maxHistory), tools: toolSpecs, maxTokens });
+      let res: Awaited<ReturnType<ModelClient['complete']>>;
+      try {
+        res = await callModel({ system, messages: trimHistory(conv.messages, maxHistory), tools: toolSpecs, maxTokens });
+      } catch (e) {
+        onError(e, 'model');
+        // Keep the history valid: the person's message (and any tool result) gets a reply.
+        const msg = langs.phrase('unavailable', language);
+        conv.messages.push({ role: 'assistant', content: [{ type: 'text', text: msg }] });
+        if (checkAt !== undefined) conv.messages.splice(checkAt, 2);
+        return finish(msg, 'unavailable', language);
+      }
       addUsage(usage, res.usage, res.model);
-      const content = res.content.filter((b) => b.type !== 'text' || b.text.trim() !== '');
+      emit({ type: 'model', step, inputTokens: res.usage.inputTokens + res.usage.cachedInputTokens, outputTokens: res.usage.outputTokens });
+      // One step at a time: keep the text and only the FIRST tool call.
+      const call = res.content.find((b): b is ToolCallBlock => b.type === 'tool_call');
+      const content = res.content.filter((b) => (b.type === 'text' ? b.text.trim() !== '' : b === call));
       if (content.length === 0) break;
       conv.messages.push({ role: 'assistant', content });
-      const call = content.find((b): b is ToolCallBlock => b.type === 'tool_call');
 
       if (!call) {
         reply = textOf(content);
         const bad = unverifiedNumbers(reply, sources);
+        if (bad.length > 0) emit({ type: 'numbers_check', unverified: bad, retrying: checkAt === undefined });
         if (bad.length > 0 && checkAt === undefined) {
           checkAt = conv.messages.length - 1;
           conv.messages.push({
@@ -275,7 +349,10 @@ export function createAssistant(options: AssistantOptions): Assistant {
 
       if (call.name === REMEMBER_TOOL) {
         const note = typeof (call.input as { note?: unknown })?.note === 'string' ? ((call.input as { note: string }).note) : '';
-        if (note.trim()) await notes.add(input.tenantId, input.userId, note.trim());
+        if (note.trim()) {
+          await notes.add(input.tenantId, input.userId, note.trim());
+          emit({ type: 'remember', note: note.trim() });
+        }
         conv.messages.push({ role: 'user', content: [toolResult(call.id, note.trim() ? 'Saved.' : 'Nothing to save.')] });
         continue;
       }
@@ -286,21 +363,23 @@ export function createAssistant(options: AssistantOptions): Assistant {
         continue;
       }
 
+      emit({ type: 'tool_call', action: entry.name, input: call.input });
       if (entry.kind === 'query') {
         let result: ActionResult<unknown>;
         try {
           result = await actions.execute({ action: entry.name, version: entry.version, input: call.input ?? {} });
         } catch (e) {
           onError(e, `execute ${entry.name}`);
-          return finish(phrase('unavailable', language), 'unavailable', language);
+          return finish(langs.phrase('unavailable', language), 'unavailable', language);
         }
         if (!result.ok && result.error.code === 'ASSISTANT_QUOTA_EXCEEDED') {
           conv.messages.push({ role: 'user', content: [toolResult(call.id, renderResult(result, maxResult), true)] });
-          const msg = phrase('quota', language);
+          const msg = langs.phrase('quota', language);
           conv.messages.push({ role: 'assistant', content: [{ type: 'text', text: msg }] });
           return finish(msg, 'refused', language);
         }
         const content = renderResult(result, maxResult);
+        emit(result.ok ? { type: 'tool_result', action: entry.name, ok: true, content } : { type: 'tool_result', action: entry.name, ok: false, code: result.error.code, content });
         sources.push(content);
         conv.messages.push({ role: 'user', content: [toolResult(call.id, content, !result.ok)] });
         continue;
@@ -310,26 +389,28 @@ export function createAssistant(options: AssistantOptions): Assistant {
       const proposal = await propose(actions, entry, call);
       if (proposal.kind === 'error') {
         const content = renderResult(proposal.result, maxResult);
+        emit({ type: 'preview', action: entry.name, ok: false, ...(proposal.result.ok ? {} : { code: proposal.result.error.code }) });
         sources.push(content);
         conv.messages.push({ role: 'user', content: [toolResult(call.id, content, true)] });
         continue;
       }
-      if (proposal.kind === 'unavailable') return finish(phrase('unavailable', language), 'unavailable', language);
+      if (proposal.kind === 'unavailable') return finish(langs.phrase('unavailable', language), 'unavailable', language);
       conv.pending = proposal.pending;
+      emit({ type: 'preview', action: entry.name, ok: true, stepUp: proposal.preview?.stepUp.required ?? false });
       const replyText =
         proposal.preview !== undefined
-          ? confirmationMessage(proposal.preview.preview, language, { stepUp: proposal.preview.stepUp.required })
-          : [phrase('confirmIntro', language), pick(proposal.pending.summary, language), phrase('confirmQuestion', language)].join('\n');
+          ? langs.confirmationMessage(proposal.preview.preview, language, { stepUp: proposal.preview.stepUp.required })
+          : [langs.phrase('confirmIntro', language), langs.pick(proposal.pending.summary, language), langs.phrase('confirmQuestion', language)].join('\n');
       return finish(replyText, 'awaiting_confirmation', language);
     }
 
     if (checkAt !== undefined) conv.messages.splice(checkAt, 2); // drop the flawed draft and the check
     if (!reply) {
-      reply = phrase('noAnswer', language);
+      reply = langs.phrase('noAnswer', language);
       const last = conv.messages[conv.messages.length - 1];
       if (last?.role === 'user') conv.messages.push({ role: 'assistant', content: [{ type: 'text', text: reply }] });
     }
-    if (unverified.length > 0) reply = `${reply}\n${phrase('unverified', language)}`;
+    if (unverified.length > 0) reply = `${reply}\n${langs.phrase('unverified', language)}`;
     return finish(reply, 'answered', language, { unverified });
   }
 
@@ -353,6 +434,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
       onError(e, `execute ${p.action}`);
       return { kind: 'unavailable' };
     }
+    emit(result.ok ? { type: 'execute', action: p.action, ok: true } : { type: 'execute', action: p.action, ok: false, code: result.error.code });
     if (result.ok) return { kind: 'done', result };
     switch (result.error.code) {
       case 'PREVIEW_STALE':

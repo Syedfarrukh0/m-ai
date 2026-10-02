@@ -1,6 +1,6 @@
 {
   "name": "@m-ai/assistant-core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "M.Ai's brain: turns a person's message into answers and confirmed actions over any app that speaks @m-ai/action-contract.",
   "license": "UNLICENSED",
@@ -34,6 +34,7 @@
   },
   "files": [
     "dist",
+    "examples",
     "README.md",
     "CHANGELOG.md"
   ],
@@ -44,7 +45,9 @@
     "build": "tsup",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
-    "chat": "tsx scripts/chat.ts"
+    "chat": "tsx scripts/chat.ts",
+    "demo": "tsx scripts/demo.ts",
+    "eval": "tsx scripts/eval.ts"
   },
   "dependencies": {
     "@m-ai/action-contract": "workspace:*"

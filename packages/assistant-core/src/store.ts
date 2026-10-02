@@ -1,4 +1,4 @@
-import type { ActionPreview, Locale, LocalizedText } from '@m-ai/action-contract';
+import type { ActionPreview, LocalizedText } from '@m-ai/action-contract';
 import type { ModelMessage } from './model.js';
 
 /** A change waiting for the person: their "yes", or their approval in the app. */
@@ -24,7 +24,8 @@ export interface ConversationState {
   userId: string;
   messages: ModelMessage[];
   pending?: PendingAction;
-  language?: Locale;
+  /** Language pack code of the last reply. */
+  language?: string;
   updatedAt: string;
 }
 
