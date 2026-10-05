@@ -34,10 +34,14 @@ A scripted model plays the AI's part. Everything else is real: the mock ERP, per
 ### 3. Chat with a real model
 
 ```sh
-cp .env.example .env       # at the repo root
-# open .env and fill in M_AI_PROVIDER, M_AI_MODEL, M_AI_API_KEY (see "Models" below)
+cp .env.example .env       # at the repo root (PowerShell: Copy-Item .env.example .env)
+# open .env and fill in M_AI_PROVIDER, M_AI_API_KEY (see "Models" below)
+pnpm --filter @m-ai/assistant-core models     # lists the exact model ids your key can use
+# copy one id into M_AI_MODEL in .env
 pnpm --filter @m-ai/assistant-core chat
 ```
+
+Before starting, `chat` and `eval` ask the provider whether the key works and the model id exists. If something is wrong, they stop and say exactly what — see [Troubleshooting](#troubleshooting).
 
 You are talking to a mock distributor ERP, "Demo Distributors": Karachi, today 2 Oct 2026, 5 shops (two named "Madina"), 4 products, 2 bookers.
 
@@ -87,6 +91,19 @@ Each scenario checks:
 Run it whenever you change the model, the prompt or a language pack. Scenarios live in `evals/scenarios.json`; add your own.
 
 ---
+
+## Troubleshooting
+
+| You see | Meaning | Fix |
+|---|---|---|
+| `This API key is not scoped to a workspace … anthropic-workspace-id header` | The Anthropic key is not tied to a workspace. | In the Anthropic Console, create an API key **inside a workspace** (Settings → API keys) and use that one. Or put the workspace id in `M_AI_ANTHROPIC_WORKSPACE_ID`. |
+| `M_AI_MODEL "haiku" did not work … 404 model: haiku` | `haiku`, `sonnet`, `gpt` are nicknames, not ids. | Run `pnpm --filter @m-ai/assistant-core models`, then copy the exact id into `M_AI_MODEL`. |
+| `401` / `invalid x-api-key` / `Incorrect API key` | Wrong, revoked, or another provider's key. | Check `M_AI_API_KEY` and `M_AI_PROVIDER`. |
+| `credit` / `billing` | The provider account has no balance. | Add billing in the provider's console. |
+| The reply says "can't reach the system" | The model or the app failed during a turn. | The red line under the reply (`model error: …`) says which, and why. |
+| `400` from an OpenAI-compatible server about `parallel_tool_calls` or `max_tokens` | That server doesn't accept the field. | Set `M_AI_PARALLEL_TOOL_CALLS_PARAM=false`, or `M_AI_MAX_COMPLETION_TOKENS=true`. |
+
+**If a key is ever exposed** — pasted in a chat, committed, or shared — revoke it in the provider's console at once and create a new one. `.env` is git-ignored; run `git status` before pushing to be sure it isn't staged.
 
 ## Models
 

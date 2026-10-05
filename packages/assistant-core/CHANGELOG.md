@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.2.1 — 2026-10-05
+
+These fixes came from the first run with a real key.
+
+### Pre-flight check
+- Before `chat` and `eval` start, they check the configuration with the provider:
+  - the model list (free);
+  - one tiny test call, if the id is not listed (it may be an alias).
+- On failure they stop and print the provider's own message, a hint, and the model ids close to the one configured.
+- Skip it with `M_AI_SKIP_PREFLIGHT=true`.
+
+### Model setup
+- **`models` command:** lists the exact model ids the key can use.
+- **Workspace header:** `M_AI_ANTHROPIC_WORKSPACE_ID`, sent as `anthropic-workspace-id`, for Anthropic keys that are not scoped to a workspace.
+- **Model listing:** `listAnthropicModels`, `listOpenAICompatibleModels`, `config.listModels()`, `preflight()`.
+
+### Clearer errors
+- Provider errors carry the provider's message (`providerMessage`).
+- `TurnResult.error` says why a turn was `unavailable` (`model` or `app`). The terminal chat prints it in red.
+
+### Evals
+- A scenario no longer passes when the assistant could not work at all. Every turn checks "assistant was available".
+
 ## 0.2.0 — 2026-10-03
 
 ### Works with any software

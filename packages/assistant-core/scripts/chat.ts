@@ -11,9 +11,10 @@ import { stdin, stdout } from 'node:process';
 import { DEMO_TENANT, ENABLED_SETTINGS, IDS, createMockErp } from '@m-ai/mock-erp';
 import { createAssistant, createInProcessActionsClient } from '../src/index.js';
 import type { AssistantEvent, TurnResult } from '../src/index.js';
-import { loadConfig } from './env.js';
+import { checkModel, loadConfig } from './env.js';
 
 const config = loadConfig();
+await checkModel(config);
 const USERS = { owner: IDS.owner, booker: IDS.booker, storekeeper: IDS.storekeeper } as const;
 type Who = keyof typeof USERS;
 
@@ -157,6 +158,7 @@ chat: for await (const raw of rl) {
     ...(choice ? { choice } : {}),
   });
   console.log(`\nM.Ai › ${r.reply}`);
+  if (r.error) console.log(`\x1b[31m  ${r.error.source === 'model' ? 'model' : 'app'} error: ${r.error.message}\x1b[0m`);
   if (r.pending) console.log(dim(`  ${r.pending.options.map((o) => `[ ${o.label} ]`).join(' ')}   (type it, or /yes /no)`));
   console.log(`${status(r)}\n`);
   prompt();

@@ -84,6 +84,19 @@ export class ModelError extends Error {
   }
 }
 
+/** The provider's own error message, when the body is {"error":{"message":…}}. */
+export function providerMessage(text: string): string {
+  try {
+    const body = JSON.parse(text) as { error?: { message?: unknown } | string; message?: unknown };
+    if (typeof body.error === 'object' && typeof body.error?.message === 'string') return body.error.message;
+    if (typeof body.error === 'string') return body.error;
+    if (typeof body.message === 'string') return body.message;
+  } catch {
+    // not JSON
+  }
+  return text.slice(0, 300);
+}
+
 export function textOf(content: ReadonlyArray<ContentBlock>): string {
   return content
     .filter((b): b is TextBlock => b.type === 'text')

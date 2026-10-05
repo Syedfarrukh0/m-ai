@@ -282,7 +282,7 @@ describe('eval runner', () => {
     const model = createScriptedModel([{ call: { name: 'reports.sales.summary', input: { from: '2026-10-02', to: '2026-10-02' } } }, 'Aaj ki sale 2,124 hai.']);
     const { results } = await runScenario(scenario, { model });
     expect(results.filter((r) => !r.ok)).toEqual([]);
-    expect(results.length).toBe(7);
+    expect(results.length).toBe(8); // 5 expectations + availability + numbers + the after-check
   });
 
   it('fails a model that uses the wrong date or figure', async () => {

@@ -87,6 +87,8 @@ export async function runScenario(
     const called = events.filter((x): x is Extract<AssistantEvent, { type: 'tool_call' }> => x.type === 'tool_call');
     const replyNumbers = numbersIn(r.reply);
 
+    // Nothing passes by default when the assistant could not work at all.
+    if (e.status !== 'unavailable') check('assistant was available', r.status !== 'unavailable', r.error?.message ?? r.status);
     if (e.status) check(`status ${e.status}`, r.status === e.status, r.status);
     if (e.language) check(`language ${e.language}`, r.language === e.language, r.language);
     for (const a of e.calls ?? []) check(`calls ${a}`, called.some((c) => c.action === a), called.map((c) => c.action).join(', ') || 'none');

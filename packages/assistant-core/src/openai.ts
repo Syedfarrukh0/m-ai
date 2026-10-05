@@ -1,5 +1,5 @@
 import type { ModelClient, ModelMessage, ModelRequest, ModelResponse, TextBlock, ToolCallBlock } from './model.js';
-import { ModelError } from './model.js';
+import { ModelError, providerMessage } from './model.js';
 
 /**
  * A ModelClient for the OpenAI Chat Completions API — and for every provider
@@ -69,7 +69,7 @@ export function createOpenAICompatibleModel(options: OpenAICompatibleOptions): M
       }
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        throw new ModelError(`model returned ${res.status}: ${text.slice(0, 300)}`, res.status, res.status === 429 || res.status >= 500);
+        throw new ModelError(`the provider answered ${res.status}: ${providerMessage(text)}`, res.status, res.status === 429 || res.status >= 500);
       }
       return fromChatResponse((await res.json()) as ChatResponse, options.model);
     },
@@ -134,4 +134,24 @@ export function fromChatResponse(r: ChatResponse, fallbackModel: string): ModelR
     usage: { inputTokens: Math.max(0, prompt - cached), cachedInputTokens: cached, outputTokens: r.usage?.completion_tokens ?? 0 },
     model: r.model ?? fallbackModel,
   };
+}
+
+/** The model ids an OpenAI-compatible server offers (GET {baseUrl}/models). */
+export async function listOpenAICompatibleModels(
+  options: Pick<OpenAICompatibleOptions, 'apiKey' | 'baseUrl' | 'headers' | 'fetch'>,
+): Promise<string[]> {
+  const doFetch = options.fetch ?? globalThis.fetch;
+  let res: Response;
+  try {
+    res = await doFetch(`${options.baseUrl.replace(/\/$/, '')}/models`, {
+      method: 'GET',
+      headers: { ...(options.apiKey ? { authorization: `Bearer ${options.apiKey}` } : {}), ...options.headers },
+    });
+  } catch (e) {
+    throw new ModelError(`could not reach ${options.baseUrl}: ${(e as Error).message}`, undefined, true);
+  }
+  const text = await res.text();
+  if (!res.ok) throw new ModelError(`the provider answered ${res.status}: ${providerMessage(text)}`, res.status, res.status === 429 || res.status >= 500);
+  const body = JSON.parse(text) as { data?: Array<{ id: string }>; models?: Array<{ id?: string; name?: string }> };
+  return [...(body.data ?? []).map((m) => m.id), ...(body.models ?? []).map((m) => m.id ?? m.name ?? '').filter(Boolean)];
 }

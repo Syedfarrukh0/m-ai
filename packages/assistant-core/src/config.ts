@@ -1,11 +1,12 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { createAnthropicModel } from './anthropic.js';
+import { createAnthropicModel, listAnthropicModels } from './anthropic.js';
 import type { LanguagePack } from './languages.js';
 import { BUILTIN_LANGUAGES, LanguagePackSchema } from './languages.js';
 import type { ModelClient } from './model.js';
-import { createOpenAICompatibleModel } from './openai.js';
+import { ModelError } from './model.js';
+import { createOpenAICompatibleModel, listOpenAICompatibleModels } from './openai.js';
 import type { ModelPricing } from './usage.js';
 
 /**
@@ -30,6 +31,8 @@ export interface M_AI_Config {
   provider: Provider;
   modelId: string;
   model: ModelClient;
+  /** The model ids the configured key may use, from the provider. */
+  listModels(): Promise<string[]>;
   pricing?: ModelPricing;
   languages: LanguagePack[];
   instructions?: string;
@@ -41,6 +44,7 @@ export interface M_AI_Config {
  *   M_AI_MODEL           the model id                              (required)
  *   M_AI_API_KEY         the provider key (or ANTHROPIC_API_KEY / OPENAI_API_KEY)
  *   M_AI_BASE_URL        required for openai-compatible (e.g. http://localhost:11434/v1)
+ *   M_AI_ANTHROPIC_WORKSPACE_ID  only for Anthropic keys that are not scoped to a workspace
  *   M_AI_PRICE_IN / M_AI_PRICE_CACHED / M_AI_PRICE_OUT   USD per million tokens (optional)
  *   M_AI_PARALLEL_TOOL_CALLS_PARAM   send parallel_tool_calls:false (default true; openai*)
  *   M_AI_MAX_COMPLETION_TOKENS       use max_completion_tokens (default false; openai*)
@@ -95,18 +99,25 @@ export function configFromEnv(env: Record<string, string | undefined> = process.
 
   if (problems.length > 0) throw new ConfigError(problems);
 
-  const model =
-    provider === 'anthropic'
-      ? createAnthropicModel({ apiKey: key!, model: modelId, ...(baseUrl ? { baseUrl } : {}) })
-      : createOpenAICompatibleModel({
-          model: modelId,
-          baseUrl: baseUrl ?? 'https://api.openai.com/v1',
-          ...(key ? { apiKey: key } : {}),
-          disableParallelToolCalls: bool(env['M_AI_PARALLEL_TOOL_CALLS_PARAM'], true),
-          useMaxCompletionTokens: bool(env['M_AI_MAX_COMPLETION_TOKENS'], false),
-        });
+  const workspaceId = env['M_AI_ANTHROPIC_WORKSPACE_ID']?.trim() || undefined;
+  let model: ModelClient;
+  let listModels: () => Promise<string[]>;
+  if (provider === 'anthropic') {
+    const o = { apiKey: key!, ...(baseUrl ? { baseUrl } : {}), ...(workspaceId ? { workspaceId } : {}) };
+    model = createAnthropicModel({ ...o, model: modelId });
+    listModels = () => listAnthropicModels(o);
+  } else {
+    const o = { baseUrl: baseUrl ?? 'https://api.openai.com/v1', ...(key ? { apiKey: key } : {}) };
+    model = createOpenAICompatibleModel({
+      ...o,
+      model: modelId,
+      disableParallelToolCalls: bool(env['M_AI_PARALLEL_TOOL_CALLS_PARAM'], true),
+      useMaxCompletionTokens: bool(env['M_AI_MAX_COMPLETION_TOKENS'], false),
+    });
+    listModels = () => listOpenAICompatibleModels(o);
+  }
 
-  const config: M_AI_Config = { provider, modelId, model, languages };
+  const config: M_AI_Config = { provider, modelId, model, listModels, languages };
   if (pricing) config.pricing = pricing;
   if (instructions) config.instructions = instructions;
   return config;
@@ -147,4 +158,69 @@ export function loadEnvFile(path: string, into: Record<string, string | undefine
     if (into[k] === undefined) into[k] = v;
   }
   return true;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pre-flight: is the key accepted, and does the model id exist?
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface PreflightResult {
+  ok: boolean;
+  /** What is wrong, in plain words, with the provider's own message. */
+  problems: string[];
+  /** Model ids close to M_AI_MODEL, when it was not found. */
+  suggestions: string[];
+  /** Notes that don't stop anything. */
+  warnings: string[];
+}
+
+const HINTS: Array<[RegExp, string]> = [
+  [/workspace/i, 'Create a key inside a workspace (Console → API keys), or set M_AI_ANTHROPIC_WORKSPACE_ID.'],
+  [/invalid x-api-key|invalid api key|incorrect api key|authentication/i, 'The key is wrong, revoked or for another provider. Check M_AI_API_KEY and M_AI_PROVIDER.'],
+  [/credit|billing|balance/i, 'The provider account has no credit. Add billing in the provider console.'],
+  [/model/i, 'Check M_AI_MODEL: it must be the exact id from the list below (run: pnpm --filter @m-ai/assistant-core models).'],
+];
+
+function explain(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  const hint = HINTS.find(([re]) => re.test(msg))?.[1];
+  return hint ? `${msg}\n    → ${hint}` : msg;
+}
+
+/**
+ * Checks the configuration against the provider before anything else runs:
+ * lists the models the key may use (free), and if the configured id is not
+ * listed (it may be an alias), makes one tiny call to be sure.
+ */
+export async function preflight(config: M_AI_Config): Promise<PreflightResult> {
+  const result: PreflightResult = { ok: true, problems: [], suggestions: [], warnings: [] };
+  let ids: string[] | undefined;
+  try {
+    ids = await config.listModels();
+  } catch (e) {
+    const status = e instanceof ModelError ? e.status : undefined;
+    if (status === 404 && config.provider === 'openai-compatible') {
+      result.warnings.push('This server does not list its models; the model id is checked with a test call instead.');
+    } else {
+      result.ok = false;
+      result.problems.push(explain(e));
+      return result;
+    }
+  }
+  if (ids && ids.includes(config.modelId)) return result;
+
+  try {
+    await config.model.complete({ system: 'Reply with OK.', messages: [{ role: 'user', content: [{ type: 'text', text: 'ping' }] }], tools: [], maxTokens: 1 });
+    if (ids) result.warnings.push(`"${config.modelId}" is not in the provider's model list, but the test call worked (probably an alias).`);
+    return result;
+  } catch (e) {
+    result.ok = false;
+    result.problems.push(`M_AI_MODEL "${config.modelId}" did not work: ${explain(e)}`);
+    if (ids && ids.length > 0) {
+      const needle = config.modelId.toLowerCase();
+      const close = ids.filter((id) => id.toLowerCase().includes(needle));
+      result.suggestions = (close.length > 0 ? close : ids).slice(0, 15);
+    }
+    return result;
+  }
 }

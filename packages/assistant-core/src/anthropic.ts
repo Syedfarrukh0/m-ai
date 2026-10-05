@@ -1,5 +1,5 @@
 import type { ContentBlock, ModelClient, ModelRequest, ModelResponse, TextBlock, ToolCallBlock } from './model.js';
-import { ModelError } from './model.js';
+import { ModelError, providerMessage } from './model.js';
 
 export { ModelError } from './model.js';
 
@@ -14,7 +14,22 @@ export interface AnthropicOptions {
   cache?: boolean;
   /** Request timeout. Default 60 s. */
   timeoutMs?: number;
+  /** For API keys that are not scoped to a workspace: sent as the anthropic-workspace-id header. */
+  workspaceId?: string;
+  /** Extra headers. */
+  headers?: Record<string, string>;
 }
+
+function anthropicHeaders(o: Pick<AnthropicOptions, 'apiKey' | 'workspaceId' | 'headers'>): Record<string, string> {
+  return {
+    'content-type': 'application/json',
+    'x-api-key': o.apiKey,
+    'anthropic-version': '2023-06-01',
+    ...(o.workspaceId ? { 'anthropic-workspace-id': o.workspaceId } : {}),
+    ...o.headers,
+  };
+}
+
 
 interface AnthropicBlock {
   type: string;
@@ -51,11 +66,7 @@ export function createAnthropicModel(options: AnthropicOptions): ModelClient {
       try {
         res = await doFetch(url, {
           method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            'x-api-key': options.apiKey,
-            'anthropic-version': '2023-06-01',
-          },
+          headers: anthropicHeaders(options),
           body: JSON.stringify(body),
           signal: controller.signal,
         });
@@ -67,11 +78,39 @@ export function createAnthropicModel(options: AnthropicOptions): ModelClient {
       if (!res.ok) {
         const text = await res.text().catch(() => '');
         const retryable = res.status === 429 || res.status === 529 || res.status >= 500;
-        throw new ModelError(`model returned ${res.status}: ${text.slice(0, 300)}`, res.status, retryable);
+        throw new ModelError(`Anthropic answered ${res.status}: ${providerMessage(text)}`, res.status, retryable);
       }
       return fromAnthropicResponse((await res.json()) as AnthropicResponse);
     },
   };
+}
+
+/** The model ids this key may use (GET /v1/models). */
+export async function listAnthropicModels(
+  options: Pick<AnthropicOptions, 'apiKey' | 'baseUrl' | 'workspaceId' | 'headers' | 'fetch'>,
+): Promise<string[]> {
+  const doFetch = options.fetch ?? globalThis.fetch;
+  const base = `${(options.baseUrl ?? 'https://api.anthropic.com').replace(/\/$/, '')}/v1/models`;
+  const ids: string[] = [];
+  let after: string | undefined;
+  for (let page = 0; page < 5; page++) {
+    let res: Response;
+    try {
+      res = await doFetch(`${base}?limit=100${after ? `&after_id=${encodeURIComponent(after)}` : ''}`, {
+        method: 'GET',
+        headers: anthropicHeaders(options),
+      });
+    } catch (e) {
+      throw new ModelError(`could not reach Anthropic: ${(e as Error).message}`, undefined, true);
+    }
+    const text = await res.text();
+    if (!res.ok) throw new ModelError(`Anthropic answered ${res.status}: ${providerMessage(text)}`, res.status, res.status === 429 || res.status >= 500);
+    const body = JSON.parse(text) as { data?: Array<{ id: string }>; has_more?: boolean; last_id?: string };
+    ids.push(...(body.data ?? []).map((m) => m.id));
+    if (!body.has_more || !body.last_id) break;
+    after = body.last_id;
+  }
+  return ids;
 }
 
 export function toAnthropicBody(model: string, request: ModelRequest, cache: boolean): Record<string, unknown> {

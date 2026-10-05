@@ -10,14 +10,14 @@ export { createAssistant, renderResult, trimHistory } from './assistant.js';
 export type { Assistant, AssistantEvent, AssistantOptions, TurnInput, TurnResult, TurnStatus } from './assistant.js';
 export { createHttpActionsClient, createInProcessActionsClient, TransportError } from './actions-client.js';
 export type { ActionsClient, HttpActionsClientOptions } from './actions-client.js';
-export { createAnthropicModel, fromAnthropicResponse, toAnthropicBody, ModelError } from './anthropic.js';
+export { createAnthropicModel, fromAnthropicResponse, listAnthropicModels, toAnthropicBody, ModelError } from './anthropic.js';
 export type { AnthropicOptions } from './anthropic.js';
 export type * from './model.js';
-export { textOf } from './model.js';
-export { createOpenAICompatibleModel, fromChatResponse, toChatBody } from './openai.js';
+export { providerMessage, textOf } from './model.js';
+export { createOpenAICompatibleModel, fromChatResponse, listOpenAICompatibleModels, toChatBody } from './openai.js';
 export type { OpenAICompatibleOptions } from './openai.js';
-export { ConfigError, configFromEnv, loadEnvFile, loadLanguagePacks } from './config.js';
-export type { M_AI_Config, Provider } from './config.js';
+export { ConfigError, configFromEnv, loadEnvFile, loadLanguagePacks, preflight } from './config.js';
+export type { M_AI_Config, PreflightResult, Provider } from './config.js';
 export {
   BUILTIN_LANGUAGES,
   ENGLISH,

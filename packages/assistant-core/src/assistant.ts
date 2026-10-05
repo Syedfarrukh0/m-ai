@@ -108,6 +108,8 @@ export interface TurnResult {
   usage: TurnUsage;
   /** Figures in the reply that no tool returned (after one corrective retry). Empty when all check out. */
   unverifiedNumbers: string[];
+  /** Why the turn ended 'unavailable' — for logs and developers, not for the person. */
+  error?: { source: 'model' | 'app'; message: string };
 }
 
 export interface Assistant {
@@ -174,7 +176,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
       reply: string,
       status: TurnStatus,
       language: string,
-      extra: { unverified?: string[]; record?: boolean } = {},
+      extra: { unverified?: string[]; record?: boolean; error?: TurnResult['error'] } = {},
     ): Promise<TurnResult> => {
       conv.language = language;
       conv.updatedAt = now().toISOString();
@@ -191,6 +193,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
         usage,
         unverifiedNumbers: extra.unverified ?? [],
       };
+      if (extra.error) result.error = extra.error;
       if (conv.pending) {
         const p: NonNullable<TurnResult['pending']> = {
           action: conv.pending.action,
@@ -221,7 +224,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
     } catch (e) {
       onError(e, 'context');
       const language = langs.detect(input.text, conv.language ?? 'en');
-      return finish(langs.phrase('unavailable', language), 'unavailable', language, { record: false });
+      return finish(langs.phrase('unavailable', language), 'unavailable', language, { record: false, error: { source: 'app', message: (e instanceof Error ? e.message : String(e)) } });
     }
 
     const settings = context?.assistant?.settings ?? { ...AssistantSettings.parse({}), enabled: true };
@@ -271,7 +274,8 @@ export function createAssistant(options: AssistantOptions): Assistant {
           conv.pending = { ...p, stage: 'step-up' };
           return finish(langs.phrase(lead, language), 'awaiting_approval', language);
         }
-        if (outcome.kind === 'unavailable') return finish(langs.phrase('unavailable', language), 'unavailable', language, { record: false });
+        if (outcome.kind === 'unavailable')
+          return finish(langs.phrase('unavailable', language), 'unavailable', language, { record: false, error: { source: 'app', message: outcome.message } });
         executed.push(outcome.result.ok ? { action: p.action, ok: true } : { action: p.action, ok: false, code: outcome.result.error.code });
         prefix.push(toolResult(p.toolCallId, renderResult(outcome.result, maxResult), !outcome.result.ok));
         delete conv.pending;
@@ -284,7 +288,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
       catalog = (await actions.list()).actions;
     } catch (e) {
       onError(e, 'list');
-      return finish(langs.phrase('unavailable', language), 'unavailable', language, { record: false });
+      return finish(langs.phrase('unavailable', language), 'unavailable', language, { record: false, error: { source: 'app', message: (e instanceof Error ? e.message : String(e)) } });
     }
     const recentText = [input.text, ...recentUserTexts(conv.messages, 3)].join(' ');
     const tools = selectTools(catalog, recentText, maxTools, synonyms);
@@ -316,7 +320,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
         const msg = langs.phrase('unavailable', language);
         conv.messages.push({ role: 'assistant', content: [{ type: 'text', text: msg }] });
         if (checkAt !== undefined) conv.messages.splice(checkAt, 2);
-        return finish(msg, 'unavailable', language);
+        return finish(msg, 'unavailable', language, { error: { source: 'model', message: (e instanceof Error ? e.message : String(e)) } });
       }
       addUsage(usage, res.usage, res.model);
       emit({ type: 'model', step, inputTokens: res.usage.inputTokens + res.usage.cachedInputTokens, outputTokens: res.usage.outputTokens });
@@ -370,7 +374,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
           result = await actions.execute({ action: entry.name, version: entry.version, input: call.input ?? {} });
         } catch (e) {
           onError(e, `execute ${entry.name}`);
-          return finish(langs.phrase('unavailable', language), 'unavailable', language);
+          return finish(langs.phrase('unavailable', language), 'unavailable', language, { error: { source: 'app', message: (e instanceof Error ? e.message : String(e)) } });
         }
         if (!result.ok && result.error.code === 'ASSISTANT_QUOTA_EXCEEDED') {
           conv.messages.push({ role: 'user', content: [toolResult(call.id, renderResult(result, maxResult), true)] });
@@ -394,7 +398,8 @@ export function createAssistant(options: AssistantOptions): Assistant {
         conv.messages.push({ role: 'user', content: [toolResult(call.id, content, true)] });
         continue;
       }
-      if (proposal.kind === 'unavailable') return finish(langs.phrase('unavailable', language), 'unavailable', language);
+      if (proposal.kind === 'unavailable')
+        return finish(langs.phrase('unavailable', language), 'unavailable', language, { error: { source: 'app', message: proposal.message } });
       conv.pending = proposal.pending;
       emit({ type: 'preview', action: entry.name, ok: true, stepUp: proposal.preview?.stepUp.required ?? false });
       const replyText =
@@ -423,7 +428,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
     | { kind: 'done'; result: ActionResult<unknown> }
     | { kind: 'reconfirm'; preview: PreviewResult; lead: PhraseKey }
     | { kind: 'step-up' }
-    | { kind: 'unavailable' }
+    | { kind: 'unavailable'; message: string }
   > {
     const req: ExecuteRequest = { action: p.action, version: p.version, input: p.input, idempotencyKey: p.idempotencyKey };
     if (p.confirmation) req.confirmation = { id: p.confirmation.id, fingerprint: p.confirmation.fingerprint };
@@ -432,7 +437,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
       result = await actions.execute(req);
     } catch (e) {
       onError(e, `execute ${p.action}`);
-      return { kind: 'unavailable' };
+      return { kind: 'unavailable', message: e instanceof Error ? e.message : String(e) };
     }
     emit(result.ok ? { type: 'execute', action: p.action, ok: true } : { type: 'execute', action: p.action, ok: false, code: result.error.code });
     if (result.ok) return { kind: 'done', result };
@@ -447,7 +452,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
           return { kind: 'done', result: again };
         } catch (e) {
           onError(e, `preview ${p.action}`);
-          return { kind: 'unavailable' };
+          return { kind: 'unavailable', message: e instanceof Error ? e.message : String(e) };
         }
       }
       case 'STEP_UP_REQUIRED':
@@ -463,7 +468,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
   ): Promise<
     | { kind: 'pending'; pending: PendingAction; preview?: PreviewResult }
     | { kind: 'error'; result: ActionResult<unknown> }
-    | { kind: 'unavailable' }
+    | { kind: 'unavailable'; message: string }
   > {
     const base = {
       stage: 'confirm' as const,
@@ -483,7 +488,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
       p = await actions.preview({ action: entry.name, version: entry.version, input: call.input ?? {} });
     } catch (e) {
       onError(e, `preview ${entry.name}`);
-      return { kind: 'unavailable' };
+      return { kind: 'unavailable', message: e instanceof Error ? e.message : String(e) };
     }
     if (!p.ok) return { kind: 'error', result: p };
     return {

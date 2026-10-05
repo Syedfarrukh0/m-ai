@@ -8,7 +8,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { loadConfig } from './env.js';
+import { checkModel, loadConfig } from './env.js';
 import { runScenario } from './eval-runner.js';
 import type { CheckResult, Scenario } from './eval-runner.js';
 
@@ -22,6 +22,7 @@ const only = flag('--only');
 const verbose = args.includes('--verbose');
 
 const config = loadConfig();
+await checkModel(config);
 const file = flag('--file') ?? fileURLToPath(new URL('../evals/scenarios.json', import.meta.url));
 const scenarios = (JSON.parse(readFileSync(file, 'utf8')) as Scenario[]).filter((s) => !only || s.name.includes(only));
 

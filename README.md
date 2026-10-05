@@ -13,7 +13,7 @@ The assistant **never touches an app's database and never calculates numbers its
 | Package | What it is | Status |
 |---|---|---|
 | [`@m-ai/action-contract`](packages/action-contract) | The SDK an app installs to become assistant-ready: action definitions, the registry (preview → confirm → execute), catalog, delegation, webhooks. Public, MIT. | **0.1.1** — vendored by the ERP |
-| [`@m-ai/assistant-core`](packages/assistant-core) | The brain: conversation, tool selection from the catalog, confirmations, step-up, the numbers guard, language packs, any model (Anthropic, OpenAI, OpenAI-compatible / Ollama), usage. | **0.2.0** |
+| [`@m-ai/assistant-core`](packages/assistant-core) | The brain: conversation, tool selection from the catalog, confirmations, step-up, the numbers guard, language packs, any model (Anthropic, OpenAI, OpenAI-compatible / Ollama), usage. | **0.2.1** |
 | [`@m-ai/mock-erp`](packages/mock-erp) | A small distributor ERP on the contract, for building and testing without the real ERP. Private. | 0.1.0 |
 | `@m-ai/channels` | WhatsApp / web chat / voice adapters, and the assistant service. | next |
 
@@ -26,7 +26,8 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 ```sh
 corepack enable && pnpm install && pnpm verify        # build + all tests
 pnpm --filter @m-ai/assistant-core demo               # offline demo, no API key needed
-cp .env.example .env                                  # then fill in M_AI_PROVIDER, M_AI_MODEL, M_AI_API_KEY
+cp .env.example .env                                  # then fill in M_AI_PROVIDER and M_AI_API_KEY
+pnpm --filter @m-ai/assistant-core models             # the exact model ids your key can use → M_AI_MODEL
 pnpm --filter @m-ai/assistant-core chat               # chat with a real model against the mock ERP
 pnpm --filter @m-ai/assistant-core eval               # measure accuracy on 14 scenarios
 ```
