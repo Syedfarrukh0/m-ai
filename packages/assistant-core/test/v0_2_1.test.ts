@@ -16,7 +16,7 @@ import {
   preflight,
   providerMessage,
 } from '../src/index.js';
-import type { M_AI_Config, ModelClient } from '../src/index.js';
+import type { ModelClient, PreflightTarget } from '../src/index.js';
 import { runScenario } from '../scripts/eval-runner.js';
 
 type Call = { url: string; method: string; headers: Record<string, string>; body?: unknown };
@@ -74,17 +74,17 @@ describe('listing model ids', () => {
   });
 });
 
-function fakeConfig(listModels: () => Promise<string[]>, complete: ModelClient['complete'], modelId = 'haiku', provider: M_AI_Config['provider'] = 'anthropic'): M_AI_Config {
-  return { provider, modelId, model: { complete }, listModels, languages: [] };
+function fakeConfig(listModels: () => Promise<string[]>, complete: ModelClient['complete'], modelId = 'haiku', provider: PreflightTarget['provider'] = 'anthropic'): PreflightTarget {
+  return { provider, modelId, model: { complete }, listModels };
 }
 const ok: ModelClient['complete'] = async () => ({ content: [{ type: 'text', text: 'OK' }], stopReason: 'end', usage: { inputTokens: 1, cachedInputTokens: 0, outputTokens: 1 }, model: 'm' });
 
 describe('pre-flight', () => {
-  it('passes when the id is listed, without spending a model call', async () => {
+  it('passes when the id is listed and a tiny call works', async () => {
     let called = false;
     const r = await preflight(fakeConfig(async () => ['claude-x', 'haiku'], async (q) => ((called = true), ok(q))));
     expect(r).toEqual({ ok: true, problems: [], suggestions: [], warnings: [] });
-    expect(called).toBe(false);
+    expect(called).toBe(true); // a listed model can still be refused (no credit)
   });
 
   it('explains a key that needs a workspace', async () => {

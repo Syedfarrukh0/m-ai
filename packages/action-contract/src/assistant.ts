@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { ActionContext } from './context.js';
 import type { AnyAction } from './definition.js';
-import { IsoDate, IsoDateTime, ModuleCode, MoneyString, moneyAbsGreaterThan } from './schemas.js';
+import { CurrencyCode, IsoDate, IsoDateTime, ModuleCode, MoneyString, moneyAbsGreaterThan, moneyToScaled } from './schemas.js';
 import { LOCALES } from './vocabulary.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -94,6 +94,11 @@ export const AssistantSettings = z.object({
   greeting: z.string().trim().max(280).optional(),
   policy: AssistantPolicy.prefault({}),
   consent: AssistantConsent.optional(),
+  /**
+   * Since 0.1.3. Below this wallet balance M.Ai sends `wallet.balance.low`.
+   * Unset: 10% of the company's last top-up.
+   */
+  lowBalanceMark: MoneyString.refine((v) => moneyToScaled(v) >= 0n, 'must not be negative').optional(),
 });
 export type AssistantSettings = z.infer<typeof AssistantSettings>;
 
@@ -132,6 +137,21 @@ export const AssistantUsageRecordInput = z.object({
   /** Model providers bill in USD; the platform converts for reporting. */
   costUsd: MoneyString,
   occurredAt: IsoDateTime,
+  /**
+   * Since 0.1.2. What the company was charged for this turn from its M.Ai
+   * wallet: the cost of the model that answered, in the wallet's currency,
+   * margin included. Absent when the assistant runs without a wallet.
+   */
+  charge: z.object({ amount: MoneyString, currency: CurrencyCode }).optional(),
+  /**
+   * Since 0.1.2. The wallet balance after this charge, in `charge.currency`.
+   * It can be slightly below zero: the reply that crosses zero is still charged
+   * in full, and the next top-up covers it.
+   */
+  balanceAfter: MoneyString.optional(),
+}).refine((v) => v.balanceAfter === undefined || v.charge !== undefined, {
+  message: 'balanceAfter needs charge (its currency)',
+  path: ['balanceAfter'],
 });
 export type AssistantUsageRecordInput = z.infer<typeof AssistantUsageRecordInput>;
 

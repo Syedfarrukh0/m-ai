@@ -1,6 +1,6 @@
 {
   "name": "@m-ai/action-contract",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "description": "The contract through which an app exposes its operations to the M.Ai assistant (and to its own UIs): action definitions, a registry with preview → confirm → execute, catalog export and webhook signing.",
   "license": "MIT",
   "type": "module",

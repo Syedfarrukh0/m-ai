@@ -1,0 +1,405 @@
+[
+  {
+    "name": "today-sales",
+    "requires": [
+      "today"
+    ],
+    "turns": [
+      {
+        "say": "aaj ki sale kitni hui?",
+        "expect": {
+          "language": "ur-Latn",
+          "calls": [
+            "reports.sales.summary"
+          ],
+          "callInput": {
+            "reports.sales.summary": {
+              "from": "{today}",
+              "to": "{today}"
+            }
+          },
+          "figuresFrom": [
+            {
+              "action": "reports.sales.summary",
+              "input": {
+                "from": "{today}",
+                "to": "{today}"
+              },
+              "path": "totals.total"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "today-sales-urdu",
+    "requires": [
+      "today"
+    ],
+    "turns": [
+      {
+        "say": "آج کی سیل کتنی ہوئی؟",
+        "expect": {
+          "language": "ur",
+          "calls": [
+            "reports.sales.summary"
+          ],
+          "callInput": {
+            "reports.sales.summary": {
+              "from": "{today}",
+              "to": "{today}"
+            }
+          },
+          "figuresFrom": [
+            {
+              "action": "reports.sales.summary",
+              "input": {
+                "from": "{today}",
+                "to": "{today}"
+              },
+              "path": "totals.total"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "month-sales-english",
+    "requires": [
+      "today",
+      "monthFrom"
+    ],
+    "turns": [
+      {
+        "say": "How much did we sell this month?",
+        "expect": {
+          "language": "en",
+          "calls": [
+            "reports.sales.summary"
+          ],
+          "callInput": {
+            "reports.sales.summary": {
+              "from": "{monthFrom}",
+              "to": "{today}"
+            }
+          },
+          "figuresFrom": [
+            {
+              "action": "reports.sales.summary",
+              "input": {
+                "from": "{monthFrom}",
+                "to": "{today}"
+              },
+              "path": "totals.total"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "month-by-customer",
+    "requires": [
+      "today",
+      "monthFrom"
+    ],
+    "turns": [
+      {
+        "say": "is mahine customer wise sale dikhao",
+        "expect": {
+          "calls": [
+            "reports.sales.summary"
+          ],
+          "callInput": {
+            "reports.sales.summary": {
+              "from": "{monthFrom}",
+              "groupBy": "customer"
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "who-owes",
+    "turns": [
+      {
+        "say": "kis kis ka udhaar baqi hai?",
+        "expect": {
+          "calls": [
+            "reports.receivables.outstanding"
+          ],
+          "textFrom": [
+            {
+              "action": "reports.receivables.outstanding",
+              "input": {},
+              "path": "items.0.name"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "one-customer-owes",
+    "requires": [
+      "debtor",
+      "debtorId"
+    ],
+    "turns": [
+      {
+        "say": "{debtor} ka kitna udhaar hai?",
+        "expect": {
+          "figuresFrom": [
+            {
+              "action": "reports.receivables.outstanding",
+              "input": {
+                "customerId": "{debtorId}"
+              },
+              "path": "items.0.outstanding"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "invoice-by-number",
+    "requires": [
+      "invoiceNo"
+    ],
+    "turns": [
+      {
+        "say": "{invoiceNo} dikhao",
+        "expect": {
+          "calls": [
+            "sales.invoice.get"
+          ],
+          "figuresFrom": [
+            {
+              "action": "sales.invoice.get",
+              "input": {
+                "invoiceNo": "{invoiceNo}"
+              },
+              "path": "totalAmount"
+            }
+          ],
+          "noCalls": [
+            "documents.invoice.render"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "unpaid-invoices",
+    "requires": [
+      "debtor"
+    ],
+    "turns": [
+      {
+        "say": "{debtor} ki unpaid invoices dikhao",
+        "expect": {
+          "calls": [
+            "sales.invoice.list"
+          ],
+          "callInput": {
+            "sales.invoice.list": {
+              "unpaidOnly": true
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "statement-pdf",
+    "requires": [
+      "debtor"
+    ],
+    "turns": [
+      {
+        "say": "{debtor} ka statement PDF mein bhej do",
+        "expect": {
+          "status": "answered",
+          "calls": [
+            "documents.statement.render"
+          ],
+          "executed": [
+            "documents.statement.render"
+          ],
+          "documents": 1
+        }
+      }
+    ]
+  },
+  {
+    "name": "invoice-preview-then-no",
+    "requires": [
+      "customer",
+      "product"
+    ],
+    "turns": [
+      {
+        "say": "{customer} ko 2 carton {product} ka bill bana do",
+        "expect": {
+          "status": "awaiting_confirmation",
+          "pending": "sales.invoice.post"
+        }
+      },
+      {
+        "say": "nahi",
+        "expect": {
+          "status": "cancelled"
+        }
+      }
+    ]
+  },
+  {
+    "name": "receipt-100-yes",
+    "requires": [
+      "debtor"
+    ],
+    "turns": [
+      {
+        "say": "{debtor} se 100 rupay cash wasool hue",
+        "expect": {
+          "status": "awaiting_confirmation",
+          "pending": "receivables.receipt.post"
+        }
+      },
+      {
+        "say": "haan",
+        "expect": {
+          "executed": [
+            "receivables.receipt.post"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "receipt-over-limit-needs-approval",
+    "requires": [
+      "debtor",
+      "overLimit"
+    ],
+    "turns": [
+      {
+        "say": "{debtor} se {overLimit} rupay cash wasool hue",
+        "expect": {
+          "status": "awaiting_confirmation",
+          "pending": "receivables.receipt.post"
+        }
+      },
+      {
+        "say": "haan",
+        "expect": {
+          "status": "awaiting_approval"
+        }
+      }
+    ]
+  },
+  {
+    "name": "booker-cannot-add-customer",
+    "user": "booker",
+    "turns": [
+      {
+        "say": "naya customer banao Test Traders, Karachi",
+        "expect": {
+          "status": "answered",
+          "noCalls": [
+            "masters.customer.create"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "no-stock-yet",
+    "requires": [
+      "product"
+    ],
+    "turns": [
+      {
+        "say": "{product} ka stock kitna hai?",
+        "expect": {
+          "status": "answered"
+        }
+      }
+    ]
+  },
+  {
+    "name": "officer-phone-change-then-no",
+    "user": "officer",
+    "requires": [
+      "customer"
+    ],
+    "turns": [
+      {
+        "say": "{customer} ka phone number 03001234567 kar do",
+        "expect": {
+          "status": "awaiting_confirmation",
+          "pending": "masters.customer.update"
+        }
+      },
+      {
+        "say": "nahi",
+        "expect": {
+          "status": "cancelled"
+        }
+      }
+    ]
+  },
+  {
+    "name": "customer-account-as-data",
+    "requires": [
+      "debtor",
+      "debtorId"
+    ],
+    "turns": [
+      {
+        "say": "{debtor} ka is mahine ka hisaab dikhao",
+        "expect": {
+          "calls": [
+            "receivables.statement.get"
+          ],
+          "noCalls": [
+            "documents.statement.render"
+          ],
+          "figuresFrom": [
+            {
+              "action": "receivables.statement.get",
+              "input": {
+                "customerId": "{debtorId}"
+              },
+              "path": "closing"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "money-in-the-bank",
+    "turns": [
+      {
+        "say": "bank aur cash mein kitna paisa hai?",
+        "expect": {
+          "calls": [
+            "accounts.cash-account.list"
+          ],
+          "figuresFrom": [
+            {
+              "action": "accounts.cash-account.list",
+              "input": {},
+              "path": "totals.balance"
+            }
+          ]
+        }
+      }
+    ]
+  }
+]

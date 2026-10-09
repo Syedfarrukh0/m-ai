@@ -84,6 +84,12 @@ export async function hmacSha256(secret: string | Uint8Array, message: string): 
   return new Uint8Array(await subtle().sign('HMAC', key, encoder.encode(message)));
 }
 
+/** HMAC-SHA256 over raw bytes (a request body exactly as sent). */
+export async function hmacSha256Bytes(secret: string | Uint8Array, message: Uint8Array): Promise<Uint8Array> {
+  const key = await hmacKey(secret);
+  return new Uint8Array(await subtle().sign('HMAC', key, message as BufferSource));
+}
+
 /** Constant-time comparison for equal-length strings. */
 export function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;

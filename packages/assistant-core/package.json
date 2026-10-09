@@ -1,6 +1,6 @@
 {
   "name": "@m-ai/assistant-core",
-  "version": "0.2.1",
+  "version": "0.4.10",
   "private": true,
   "description": "M.Ai's brain: turns a person's message into answers and confirmed actions over any app that speaks @m-ai/action-contract.",
   "license": "UNLICENSED",
@@ -48,6 +48,8 @@
     "chat": "tsx scripts/chat.ts",
     "demo": "tsx scripts/demo.ts",
     "eval": "tsx scripts/eval.ts",
+    "erp": "tsx scripts/erp.ts",
+    "erp:e2e": "tsx scripts/erp-e2e.ts",
     "models": "tsx scripts/models.ts"
   },
   "dependencies": {

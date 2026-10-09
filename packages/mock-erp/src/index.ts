@@ -18,7 +18,7 @@ export * from './data.js';
 export { ACTIONS, EVENTS, MODULE_ERRORS, similarity } from './actions.js';
 export type { Events, Runtime } from './actions.js';
 
-export const ASSISTANT_CLIENT_ID = 'm-ai-assistant';
+export const ASSISTANT_CLIENT_ID = 'm-ai';
 
 export interface MockErpOptions {
   /** Raw assistant settings per tenant. Default: enabled, with consent, for the demo company. */

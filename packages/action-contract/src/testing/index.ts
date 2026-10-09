@@ -7,6 +7,8 @@
 export { InMemoryHost } from './in-memory-host.js';
 export type { InMemoryHostOptions, LicenceState, OutboxRow, StepUpRow } from './in-memory-host.js';
 export { runContractChecks } from './contract-checks.js';
+export { createFakeWallet } from './fake-wallet.js';
+export type { FakeWallet, FakeWalletOptions, FakeWalletRequest } from './fake-wallet.js';
 export type {
   CommandFixture,
   ContractCheckHost,

@@ -1,5 +1,6 @@
 import type { ModelClient, ModelMessage, ModelRequest, ModelResponse, TextBlock, ToolCallBlock } from './model.js';
-import { ModelError, providerMessage } from './model.js';
+import { ModelError, httpModelError, networkModelError } from './model.js';
+import type { ModelPricing } from './usage.js';
 
 /**
  * A ModelClient for the OpenAI Chat Completions API — and for every provider
@@ -19,6 +20,10 @@ export interface OpenAICompatibleOptions {
   useMaxCompletionTokens?: boolean;
   /** Extra headers some providers want. */
   headers?: Record<string, string>;
+  /** Extra request fields some providers want, e.g. Z.ai's `{ thinking: { type: 'disabled' } }`. */
+  extraBody?: Record<string, unknown>;
+  /** This model's price, attached to every response so each call is costed correctly. */
+  pricing?: ModelPricing;
   timeoutMs?: number;
 }
 
@@ -48,11 +53,11 @@ export function createOpenAICompatibleModel(options: OpenAICompatibleOptions): M
   return {
     async complete(request: ModelRequest): Promise<ModelResponse> {
       const body = toChatBody(options, request);
+      const timeoutMs = options.timeoutMs ?? 60_000;
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 60_000);
-      let res: Response;
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        res = await doFetch(url, {
+        const res = await doFetch(url, {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
@@ -62,23 +67,27 @@ export function createOpenAICompatibleModel(options: OpenAICompatibleOptions): M
           body: JSON.stringify(body),
           signal: controller.signal,
         });
+        if (!res.ok) throw httpModelError('the provider answered', res, await res.text().catch(() => ''));
+        const response = fromChatResponse((await res.json()) as ChatResponse, options.model);
+        if (options.pricing) response.pricing = options.pricing;
+        return response;
       } catch (e) {
-        throw new ModelError(`model request failed: ${(e as Error).message}`, undefined, true);
+        if (e instanceof ModelError) throw e;
+        throw networkModelError(e, timeoutMs);
       } finally {
         clearTimeout(timer);
       }
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        throw new ModelError(`the provider answered ${res.status}: ${providerMessage(text)}`, res.status, res.status === 429 || res.status >= 500);
-      }
-      return fromChatResponse((await res.json()) as ChatResponse, options.model);
     },
   };
 }
 
-export function toChatBody(options: Pick<OpenAICompatibleOptions, 'model' | 'disableParallelToolCalls' | 'useMaxCompletionTokens'>, request: ModelRequest): Record<string, unknown> {
+export function toChatBody(
+  options: Pick<OpenAICompatibleOptions, 'model' | 'disableParallelToolCalls' | 'useMaxCompletionTokens' | 'extraBody'>,
+  request: ModelRequest,
+): Record<string, unknown> {
   const messages: ChatMessage[] = [{ role: 'system', content: request.system }, ...request.messages.flatMap(toChatMessages)];
   const body: Record<string, unknown> = {
+    ...options.extraBody,
     model: options.model,
     messages,
     [options.useMaxCompletionTokens ? 'max_completion_tokens' : 'max_tokens']: request.maxTokens,
@@ -115,7 +124,10 @@ export function fromChatResponse(r: ChatResponse, fallbackModel: string): ModelR
   const choice = r.choices[0];
   if (!choice) throw new ModelError('model returned no choices', undefined, true);
   const content: Array<TextBlock | ToolCallBlock> = [];
-  if (choice.message.content) content.push({ type: 'text', text: choice.message.content });
+  // Reasoning models (Qwen, DeepSeek, GLM via some servers) may put their thinking in the text.
+  // It is not the reply: drop it. A separate `reasoning_content` field is ignored altogether.
+  const text = choice.message.content ? stripThinking(choice.message.content) : '';
+  if (text) content.push({ type: 'text', text });
   for (const c of choice.message.tool_calls ?? []) {
     let input: unknown;
     try {
@@ -136,6 +148,14 @@ export function fromChatResponse(r: ChatResponse, fallbackModel: string): ModelR
   };
 }
 
+/** Removes <think>…</think> sections (and an unfinished one at the end) from a model's text. */
+export function stripThinking(text: string): string {
+  return text
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<think>[\s\S]*$/i, '')
+    .trim();
+}
+
 /** The model ids an OpenAI-compatible server offers (GET {baseUrl}/models). */
 export async function listOpenAICompatibleModels(
   options: Pick<OpenAICompatibleOptions, 'apiKey' | 'baseUrl' | 'headers' | 'fetch'>,
@@ -151,7 +171,10 @@ export async function listOpenAICompatibleModels(
     throw new ModelError(`could not reach ${options.baseUrl}: ${(e as Error).message}`, undefined, true);
   }
   const text = await res.text();
-  if (!res.ok) throw new ModelError(`the provider answered ${res.status}: ${providerMessage(text)}`, res.status, res.status === 429 || res.status >= 500);
+  if (!res.ok) throw httpModelError('the provider answered', res, text);
   const body = JSON.parse(text) as { data?: Array<{ id: string }>; models?: Array<{ id?: string; name?: string }> };
-  return [...(body.data ?? []).map((m) => m.id), ...(body.models ?? []).map((m) => m.id ?? m.name ?? '').filter(Boolean)];
+  // Gemini lists "models/gemini-…" but takes the id without the prefix.
+  return [...(body.data ?? []).map((m) => m.id), ...(body.models ?? []).map((m) => m.id ?? m.name ?? '')]
+    .filter(Boolean)
+    .map((id) => id.replace(/^models\//, ''));
 }

@@ -1,0 +1,29 @@
+{
+  "name": "@m-ai/service",
+  "version": "0.1.1",
+  "private": true,
+  "description": "M.Ai's server: the web chat, and turns for apps that hand M.Ai a person's delegated token.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@m-ai/action-contract": "workspace:*",
+    "@m-ai/assistant-core": "workspace:*",
+    "fastify": "5.12.5",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@m-ai/mock-erp": "workspace:*",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  }
+}

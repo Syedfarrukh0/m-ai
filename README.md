@@ -12,10 +12,11 @@ The assistant **never touches an app's database and never calculates numbers its
 
 | Package | What it is | Status |
 |---|---|---|
-| [`@m-ai/action-contract`](packages/action-contract) | The SDK an app installs to become assistant-ready: action definitions, the registry (preview → confirm → execute), catalog, delegation, webhooks. Public, MIT. | **0.1.1** — vendored by the ERP |
-| [`@m-ai/assistant-core`](packages/assistant-core) | The brain: conversation, tool selection from the catalog, confirmations, step-up, the numbers guard, language packs, any model (Anthropic, OpenAI, OpenAI-compatible / Ollama), usage. | **0.2.1** |
+| [`@m-ai/action-contract`](packages/action-contract) | The SDK an app installs to become assistant-ready: action definitions, the registry (preview → confirm → execute), catalog, delegation, webhooks. Public, MIT. | **0.1.3** — adds the wallet API (signed requests, schemas, a fake wallet). The ERP vendors 0.1.2. |
+| [`@m-ai/assistant-core`](packages/assistant-core) | The brain: conversation, tool selection from the catalog, confirmations, step-up, the numbers guard, language packs, any model (Anthropic, OpenAI, Z.ai, Groq, Gemini, OpenRouter, Ollama, any OpenAI-compatible server) — switchable at runtime, with fallbacks — usage. | **0.4.9** |
+| [`@m-ai/service`](packages/service) | M.Ai's server: the web chat, and turns for apps that hand over a person's delegated token. Private. | **0.1.0** — web chat (pilot sign-in) |
 | [`@m-ai/mock-erp`](packages/mock-erp) | A small distributor ERP on the contract, for building and testing without the real ERP. Private. | 0.1.0 |
-| `@m-ai/channels` | WhatsApp / web chat / voice adapters, and the assistant service. | next |
+| WhatsApp, voice, the wallet | In the service. | next |
 
 The first app is the distribution ERP. It installs `action-contract`, and the assistant talks to it over `/actions/*` and signed webhooks. The ERP never installs the assistant.
 
@@ -26,13 +27,21 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 ```sh
 corepack enable && pnpm install && pnpm verify        # build + all tests
 pnpm --filter @m-ai/assistant-core demo               # offline demo, no API key needed
-cp .env.example .env                                  # then fill in M_AI_PROVIDER and M_AI_API_KEY
+cp .env.example .env                                  # then fill in M_AI_API_KEY (starts on Z.ai's free model)
 pnpm --filter @m-ai/assistant-core models             # the exact model ids your key can use → M_AI_MODEL
 pnpm --filter @m-ai/assistant-core chat               # chat with a real model against the mock ERP
 pnpm --filter @m-ai/assistant-core eval               # measure accuracy on 14 scenarios
 ```
 
 The full guide — what to type, chat commands, models, languages — is in [packages/assistant-core/README.md](packages/assistant-core/README.md).
+
+## Web chat
+
+```sh
+pnpm --filter @m-ai/service start      # http://127.0.0.1:3100 — sign in with your ERP account (M_AI_ERP_URL in .env)
+```
+
+See [packages/service/README.md](packages/service/README.md).
 
 Requires Node ≥ 20 (pnpm comes through corepack).
 

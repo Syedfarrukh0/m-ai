@@ -247,6 +247,57 @@ const delivery = EventDelivery.parse(JSON.parse(rawBody));
 
 ---
 
+## Signed requests between servers
+
+These are calls that go server to server: an app calling M.Ai (the wallet API), and M.Ai calling an app (the licence check). Each direction has **its own keys**, so neither side's key can forge the other's calls.
+
+**Both sides build exactly this string:**
+
+```
+"<t>.<METHOD>.<path>.<body>"
+```
+
+- `t` is integer unix seconds, the same value as in the header.
+- `METHOD` is upper case.
+- `path` is the path and query **exactly as sent on the wire**, not re-encoded or re-ordered.
+- `body` is the raw bytes of the body; it is empty for a GET.
+
+The signature is HMAC-SHA256 over those bytes, as **lower-case hex**. It is sent as `m-ai-key-id: <key id>` and `m-ai-signature: t=<t>,v1=<hex>`, and is accepted within 300 seconds.
+
+```ts
+const url = new URL('/v1/wallets/' + tenantId + '/top-ups', base);
+const body = JSON.stringify(topUp);
+const headers = await signRequest({ keyId, secret, method: 'POST', path: url.pathname + url.search, body });
+await fetch(url, { method: 'POST', headers: { ...headers, 'idempotency-key': key, 'content-type': 'application/json' }, body });
+
+// receiving side: the raw target and raw body, before any parsing
+const check = await verifyRequest({ method: req.method, path: req.url, body: rawBody, headers: req.headers }, keysById);
+```
+
+## The wallet API
+
+A company's assistant use is paid from its M.Ai wallet. The app calls the wallet API server to server:
+
+- to write top-ups and reversals;
+- to read the balance, the ledger and the reports.
+
+**Every write** carries an `Idempotency-Key`.
+
+**Every reply** is a `WalletResult`, and its error is exactly an `ActionError`, so one function shows wallet and action errors alike.
+
+**What the package provides:**
+
+| Export | What |
+|---|---|
+| `WALLET_PATHS` | The paths. |
+| `TopUpRequest`, `TopUpReply`, `ReversalRequest`, `ReversalReply`, `Wallet`, `LedgerEntry`, `LedgerPage`, `ResellerTopUpsPage`, `PlatformTotals` | The bodies and replies. |
+| `WALLET_ERRORS` | The wallet's own codes. Standard codes are used wherever one fits. |
+| `WALLET_EVENTS` and their payload schemas | The balance events: low, empty and restored. |
+| `LicenceCheckReply`, `licenceCheckPath()` | The licence check the app serves to M.Ai. |
+| `assistant.settings.lowBalanceMark` | The company's low-balance mark. |
+
+**To build against it before the service is running**, use `createFakeWallet()` from `@m-ai/action-contract/testing`. It answers the API in memory: signatures, idempotency, reversal rules, the ledger, reports and events. Pass its `fetch` to your HTTP client.
+
 ## Versioning
 
 Semver. While in `0.x`, a breaking change bumps the minor version. The ERP pins exact versions.

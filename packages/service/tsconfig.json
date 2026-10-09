@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "noEmit": true,
+    // The service runs from the packages' source (tsx follows these paths), so a build that is
+    // out of date — or missing — can never be what runs.
+    "baseUrl": ".",
+    "paths": {
+      "@m-ai/assistant-core": ["../assistant-core/src/index.ts"],
+      "@m-ai/assistant-core/testing": ["../assistant-core/src/testing/index.ts"],
+      "@m-ai/action-contract": ["../action-contract/src/index.ts"],
+      "@m-ai/action-contract/testing": ["../action-contract/src/testing/index.ts"]
+    }
+  },
+  "include": ["src", "test", "vitest.config.ts"]
+}

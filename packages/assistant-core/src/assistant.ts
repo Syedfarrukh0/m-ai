@@ -14,23 +14,38 @@ import { BUILTIN_LANGUAGES, createLanguages } from './languages.js';
 import type { ContentBlock, ModelClient, ModelMessage, ToolCallBlock, ToolSpec } from './model.js';
 import { ModelError, textOf } from './model.js';
 import { unverifiedNumbers } from './numbers.js';
+import { dateRanges, isoDatesIn } from './dates.js';
 import { REMEMBER_TOOL, buildSystemPrompt } from './prompt.js';
 import type { ConversationState, ConversationStore, NoteStore, PendingAction } from './store.js';
 import { MAX_NOTE_LENGTH, createMemoryConversationStore, createMemoryNoteStore } from './store.js';
-import { DEFAULT_SYNONYMS, selectTools, toToolName, toToolSpec } from './tools.js';
+import { DEFAULT_SYNONYMS, HIDDEN_TAGS, runsWithoutAsking, selectTools, toToolName, toToolSpec } from './tools.js';
 import type { ModelPricing, TurnUsage } from './usage.js';
-import { addUsage, costUsd, emptyUsage } from './usage.js';
+import type { Billing } from './usage.js';
+import { addUsage, chargeFor, checkBilling, costUnits, emptyUsage, formatCents, formatCost, groupThousands, toCents } from './usage.js';
 
 export interface AssistantOptions {
+  /** The default model. A turn can use another one (`TurnInput.model`). */
   model: ModelClient;
   conversations?: ConversationStore;
   notes?: NoteStore;
-  /** For the cost reported with each turn. Without it the cost is "0.0000". */
+  /**
+   * The price of `model`, for clients that don't attach their price to each
+   * response (the built-in clients do when given `pricing`). Without any
+   * price the cost is "0.0000".
+   */
   pricing?: ModelPricing;
   /** Model calls per turn. Default 6. */
   maxSteps?: number;
   /** Tools offered per turn. Default 24. */
   maxTools?: number;
+  /**
+   * Characters of tool definitions sent per model call (they are sent with
+   * every call, so they cost on every step). Tools past this are left out,
+   * lowest-scored first. Default 24000 (about 7K tokens).
+   */
+  maxToolChars?: number;
+  /** Actions with any of these tags are never offered. Default: `bulk` (imports need a file, not a chat). */
+  hiddenTags?: readonly string[];
   /** Messages kept per conversation. Default 40. */
   maxHistoryMessages?: number;
   /** Characters of one tool result shown to the model. Default 6000. */
@@ -55,6 +70,13 @@ export interface AssistantOptions {
   instructions?: string;
   /** Everything the assistant does, step by step — for logs and the terminal's /debug. */
   onEvent?: (event: AssistantEvent) => void;
+  /** Turns each reply's provider cost into the customer's charge (currency, rate, margin). */
+  billing?: Billing;
+  /**
+   * A last line on replies: which model answered, the charge and the balance left
+   * ("— gpt-oss-120b · is jawab ke PKR 0.31 · baqi PKR 1,999.69"). 'tokens' adds the token count. Default 'off'.
+   */
+  usageFooter?: 'off' | 'on' | 'tokens';
 }
 
 export type AssistantEvent =
@@ -64,6 +86,8 @@ export type AssistantEvent =
   | { type: 'tool_call'; action: string; input: unknown }
   | { type: 'tool_result'; action: string; ok: boolean; code?: string; content: string }
   | { type: 'numbers_check'; unverified: string[]; retrying: boolean }
+  | { type: 'empty'; step: number; stopReason: string; retrying: boolean }
+  | { type: 'done_check'; retrying: boolean }
   | { type: 'preview'; action: string; ok: boolean; stepUp?: boolean; code?: string }
   | { type: 'execute'; action: string; ok: boolean; code?: string }
   | { type: 'remember'; note: string };
@@ -79,6 +103,19 @@ export interface TurnInput {
   turnId?: string;
   /** A button press ("Yes" / "No") from channels that have buttons. Wins over the text. */
   choice?: 'yes' | 'no';
+  /**
+   * The customer's balance before this turn, in `billing.currency`. At zero or
+   * below the assistant answers with a fixed "balance has run out" and calls
+   * no model. The result gives `balanceAfter`.
+   */
+  balance?: string;
+  /**
+   * Use this model for this turn instead of the default — e.g. the model the
+   * company chose, or one picked at runtime. The conversation carries over:
+   * history is provider-neutral. Only the price attached to its responses is
+   * used for the cost.
+   */
+  model?: ModelClient;
 }
 
 export type TurnStatus =
@@ -105,11 +142,25 @@ export interface TurnResult {
   };
   /** Changes executed in this turn. */
   executed: Array<{ action: string; ok: boolean; code?: string }>;
+  /**
+   * Files made in this turn (a PDF of an invoice or statement), for the
+   * channel to attach. Taken from any result with a `documentId`.
+   */
+  documents: Array<{ action: string; documentId: string; fileName?: string; contentType?: string }>;
   usage: TurnUsage;
   /** Figures in the reply that no tool returned (after one corrective retry). Empty when all check out. */
   unverifiedNumbers: string[];
+  /** `balance` minus this turn's charge, when a balance was given. */
+  balanceAfter?: string;
   /** Why the turn ended 'unavailable' — for logs and developers, not for the person. */
-  error?: { source: 'model' | 'app'; message: string };
+  error?: {
+    source: 'model' | 'app';
+    message: string;
+    /** The provider's HTTP status, when it answered. */
+    status?: number;
+    /** False when waiting won't help (no credit, wrong key, wrong model). */
+    retryable?: boolean;
+  };
 }
 
 export interface Assistant {
@@ -135,6 +186,8 @@ export function createAssistant(options: AssistantOptions): Assistant {
   const notes = options.notes ?? createMemoryNoteStore();
   const maxSteps = options.maxSteps ?? 6;
   const maxTools = options.maxTools ?? 24;
+  const maxToolChars = options.maxToolChars ?? 24_000;
+  const hiddenTags = options.hiddenTags ? new Set(options.hiddenTags) : HIDDEN_TAGS;
   const maxHistory = options.maxHistoryMessages ?? 40;
   const maxResult = options.maxToolResultChars ?? 6000;
   const maxTokens = options.maxTokens ?? 1024;
@@ -145,25 +198,49 @@ export function createAssistant(options: AssistantOptions): Assistant {
   const modelRetries = options.modelRetries ?? 2;
   const retryDelayMs = options.retryDelayMs ?? 800;
 
-  async function callModel(request: Parameters<ModelClient['complete']>[0]) {
+  async function callModel(client: ModelClient, request: Parameters<ModelClient['complete']>[0]) {
     for (let attempt = 0; ; attempt++) {
       try {
-        return await model.complete(request);
+        return await client.complete(request);
       } catch (e) {
         const retryable = e instanceof ModelError ? e.retryable : false;
         if (!retryable || attempt >= modelRetries) throw e;
         onError(e, `model (retry ${attempt + 1})`);
-        await new Promise((r) => setTimeout(r, retryDelayMs * 2 ** attempt));
+        // Wait as long as the provider asked (Retry-After), or the backoff — whichever is longer, at most a minute.
+        const asked = e instanceof ModelError ? (e.retryAfterMs ?? 0) : 0;
+        await new Promise((r) => setTimeout(r, Math.min(Math.max(retryDelayMs * 2 ** attempt, asked), 60_000)));
       }
     }
   }
   const langs = createLanguages(options.languages ?? BUILTIN_LANGUAGES);
+  if (options.billing) {
+    const problems = checkBilling(options.billing);
+    if (problems.length > 0) throw new TypeError(`billing: ${problems.join('; ')}`);
+  }
+  const footerMode = options.usageFooter ?? 'off';
+
+  /** The last line: who answered, what it cost the customer, what is left. Added after every check. */
+  function withFooter(reply: string, language: string, usage: TurnUsage, balanceAfter: string | undefined): string {
+    if (footerMode === 'off') return reply;
+    const money = (amount: string, currency: string) => `${currency} ${groupThousands(amount)}`;
+    const parts = [usage.model.replace(/^.*\//, '') || 'model'];
+    if (footerMode === 'tokens')
+      parts.push(langs.phrase('usageTokens', language).replace('{n}', groupThousands(String(usage.inputTokens + usage.cachedInputTokens + usage.outputTokens))));
+    if (usage.charge) parts.push(langs.phrase('usageCharge', language).replace('{amount}', money(usage.charge.amount, usage.charge.currency)));
+    if (balanceAfter !== undefined && options.billing)
+      parts.push(langs.phrase('usageBalance', language).replace('{amount}', money(balanceAfter, options.billing.currency)));
+    return `${reply}\n— ${parts.join(' · ')}`;
+  }
   const synonyms = options.replaceSynonyms ? { ...options.synonyms } : { ...DEFAULT_SYNONYMS, ...options.synonyms };
 
   async function handleTurn(input: TurnInput): Promise<TurnResult> {
     const turnId = input.turnId ?? newId();
     const usage = emptyUsage();
+    const client = input.model ?? model;
+    // Each call is costed at the price of the model that answered it, summed exactly, rounded once.
+    let cost = 0n;
     const executed: TurnResult['executed'] = [];
+    const documents: TurnResult['documents'] = [];
     const actions = input.actions;
 
     let state = await conversations.get(input.conversationId);
@@ -182,18 +259,23 @@ export function createAssistant(options: AssistantOptions): Assistant {
       conv.updatedAt = now().toISOString();
       conv.messages = trimHistory(conv.messages, maxHistory);
       await conversations.put(conv);
-      usage.costUsd = costUsd(usage, options.pricing);
-      if (extra.record !== false) await recordUsage(actions, turnId, conv.id, usage);
+      usage.costUsd = formatCost(cost);
+      if (options.billing) usage.charge = { amount: chargeFor(cost, options.billing), currency: options.billing.currency };
+      const balanceAfter =
+        input.balance !== undefined ? formatCents(toCents(input.balance) - (usage.charge ? toCents(usage.charge.amount) : 0n)) : undefined;
+      if (extra.record !== false) await recordUsage(actions, turnId, conv.id, usage, balanceAfter);
       const result: TurnResult = {
         turnId,
-        reply,
+        reply: usage.modelCalls > 0 ? withFooter(reply, language, usage, balanceAfter) : reply,
         language,
         status,
         executed,
+        documents,
         usage,
         unverifiedNumbers: extra.unverified ?? [],
       };
       if (extra.error) result.error = extra.error;
+      if (balanceAfter !== undefined) result.balanceAfter = balanceAfter;
       if (conv.pending) {
         const p: NonNullable<TurnResult['pending']> = {
           action: conv.pending.action,
@@ -220,6 +302,10 @@ export function createAssistant(options: AssistantOptions): Assistant {
       } else if (r.error.code === 'ASSISTANT_POLICY_DENIED') {
         const language = langs.detect(input.text, conv.language ?? 'en');
         return finish(langs.phrase('disabled', language), 'refused', language, { record: false });
+      } else if (r.error.code === 'MODULE_NOT_LICENSED') {
+        // The company's assistant licence ended while this person's token was still live.
+        const language = langs.detect(input.text, conv.language ?? 'en');
+        return finish(langs.phrase('notLicensed', language), 'refused', language, { record: false });
       }
     } catch (e) {
       onError(e, 'context');
@@ -233,6 +319,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
     emit({ type: 'language', code: language });
 
     if (!settings.enabled) return finish(langs.phrase('disabled', language), 'refused', language, { record: false });
+    if (input.balance !== undefined && toCents(input.balance) <= 0n) return finish(langs.phrase('noBalance', language), 'refused', language, { record: false });
     if (context?.assistant?.quota.state === 'exhausted') return finish(langs.phrase('quota', language), 'refused', language, { record: false });
 
     // ── 2. A change waiting for this person ─────────────────────────────────
@@ -291,7 +378,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
       return finish(langs.phrase('unavailable', language), 'unavailable', language, { record: false, error: { source: 'app', message: (e instanceof Error ? e.message : String(e)) } });
     }
     const recentText = [input.text, ...recentUserTexts(conv.messages, 3)].join(' ');
-    const tools = selectTools(catalog, recentText, maxTools, synonyms);
+    const tools = selectTools(catalog, recentText, maxTools, synonyms, { hiddenTags, maxChars: maxToolChars });
     emit({ type: 'tools', offered: tools.map((t) => t.name) });
     const byTool = new Map(tools.map((e) => [toToolName(e.name), e]));
     const toolSpecs = [...tools.map(toToolSpec), REMEMBER_SPEC];
@@ -304,50 +391,77 @@ export function createAssistant(options: AssistantOptions): Assistant {
     });
 
     conv.messages.push({ role: 'user', content: [...prefix, { type: 'text', text: input.text }] });
-    const sources: string[] = [input.text, context?.today ?? '', ...toolResultTexts(conv.messages)];
+    // What a reply's figures may come from: the person's words, the app's results, and dates (which the reply must state).
+    const sources: string[] = [
+      input.text,
+      ...(context ? [context.today, ...dateRanges(context.today, context.company.fiscalYear.start).flatMap((r) => [r.from, r.to])] : []),
+      ...toolResultTexts(conv.messages),
+    ];
 
     let reply = '';
     let unverified: string[] = [];
     let checkAt: number | undefined;
+    let emptyRetried = false;
+    let notSaved = false;
 
     for (let step = 0; step < maxSteps; step++) {
       let res: Awaited<ReturnType<ModelClient['complete']>>;
       try {
-        res = await callModel({ system, messages: trimHistory(conv.messages, maxHistory), tools: toolSpecs, maxTokens });
+        res = await callModel(client, { system, messages: trimHistory(conv.messages, maxHistory), tools: toolSpecs, maxTokens });
       } catch (e) {
         onError(e, 'model');
         // Keep the history valid: the person's message (and any tool result) gets a reply.
         const msg = langs.phrase('unavailable', language);
         conv.messages.push({ role: 'assistant', content: [{ type: 'text', text: msg }] });
         if (checkAt !== undefined) conv.messages.splice(checkAt, 2);
-        return finish(msg, 'unavailable', language, { error: { source: 'model', message: (e instanceof Error ? e.message : String(e)) } });
+        const error: NonNullable<TurnResult['error']> = { source: 'model', message: e instanceof Error ? e.message : String(e) };
+        if (e instanceof ModelError) {
+          error.retryable = e.retryable;
+          if (e.status !== undefined) error.status = e.status;
+        }
+        return finish(msg, 'unavailable', language, { error });
       }
       addUsage(usage, res.usage, res.model);
+      cost += costUnits(res.usage, res.pricing ?? (input.model ? undefined : options.pricing));
       emit({ type: 'model', step, inputTokens: res.usage.inputTokens + res.usage.cachedInputTokens, outputTokens: res.usage.outputTokens });
       // One step at a time: keep the text and only the FIRST tool call.
       const call = res.content.find((b): b is ToolCallBlock => b.type === 'tool_call');
       const content = res.content.filter((b) => (b.type === 'text' ? b.text.trim() !== '' : b === call));
-      if (content.length === 0) break;
+      if (content.length === 0) {
+        // Nothing usable (all thinking, or cut off): ask once more before giving up.
+        emit({ type: 'empty', step, stopReason: res.stopReason, retrying: !emptyRetried });
+        if (emptyRetried) break;
+        emptyRetried = true;
+        continue;
+      }
       conv.messages.push({ role: 'assistant', content });
 
       if (!call) {
         reply = textOf(content);
         const bad = unverifiedNumbers(reply, sources);
+        // A reply may only say a change was made if one was executed in this turn.
+        const falseDone = !executed.some((x) => x.ok) && langs.claimsDone(reply);
         if (bad.length > 0) emit({ type: 'numbers_check', unverified: bad, retrying: checkAt === undefined });
-        if (bad.length > 0 && checkAt === undefined) {
+        if (falseDone) emit({ type: 'done_check', retrying: checkAt === undefined });
+        if ((bad.length > 0 || falseDone) && checkAt === undefined) {
           checkAt = conv.messages.length - 1;
+          const problems: string[] = [];
+          if (bad.length > 0)
+            problems.push(
+              `it contains figures that no tool returned: ${bad.join(', ')}. Leave those figures out entirely (do not guess codes, rates or totals); use only figures exactly as tools returned them, or call a tool that returns the figure`,
+            );
+          if (falseDone)
+            problems.push(
+              'it says something was done, posted, saved or sent, but NOTHING was executed. Never say a change is done. If the person wants a change, call the action tool now: the system shows them a preview to confirm. Otherwise say what is still needed',
+            );
           conv.messages.push({
             role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: `[system check — not from the person] Your reply contains figures that no tool returned: ${bad.join(', ')}. Rewrite it using only figures exactly as tools returned them, or call a tool that returns the figure. Do not mention this check.`,
-              },
-            ],
+            content: [{ type: 'text', text: `[system check — not from the person] Your reply must be fixed: ${problems.join('. Also, ')}. Do not mention this check.` }],
           });
           continue;
         }
         unverified = bad;
+        notSaved = falseDone;
         break;
       }
 
@@ -368,10 +482,17 @@ export function createAssistant(options: AssistantOptions): Assistant {
       }
 
       emit({ type: 'tool_call', action: entry.name, input: call.input });
-      if (entry.kind === 'query') {
+      const direct = runsWithoutAsking(entry);
+      if (entry.kind === 'query' || direct) {
         let result: ActionResult<unknown>;
         try {
-          result = await actions.execute({ action: entry.name, version: entry.version, input: call.input ?? {} });
+          result = await actions.execute({
+            action: entry.name,
+            version: entry.version,
+            input: call.input ?? {},
+            // A command always carries its key, even one that runs without asking.
+            ...(direct ? { idempotencyKey: newId() } : {}),
+          });
         } catch (e) {
           onError(e, `execute ${entry.name}`);
           return finish(langs.phrase('unavailable', language), 'unavailable', language, { error: { source: 'app', message: (e instanceof Error ? e.message : String(e)) } });
@@ -384,7 +505,12 @@ export function createAssistant(options: AssistantOptions): Assistant {
         }
         const content = renderResult(result, maxResult);
         emit(result.ok ? { type: 'tool_result', action: entry.name, ok: true, content } : { type: 'tool_result', action: entry.name, ok: false, code: result.error.code, content });
-        sources.push(content);
+        if (direct) {
+          executed.push(result.ok ? { action: entry.name, ok: true } : { action: entry.name, ok: false, code: result.error.code });
+          const doc = result.ok ? documentOf(entry.name, result.data) : undefined;
+          if (doc) documents.push(doc);
+        }
+        sources.push(content, ...isoDatesIn(call.input));
         conv.messages.push({ role: 'user', content: [toolResult(call.id, content, !result.ok)] });
         continue;
       }
@@ -416,6 +542,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
       if (last?.role === 'user') conv.messages.push({ role: 'assistant', content: [{ type: 'text', text: reply }] });
     }
     if (unverified.length > 0) reply = `${reply}\n${langs.phrase('unverified', language)}`;
+    if (notSaved) reply = `${reply}\n${langs.phrase('notSaved', language)}`;
     return finish(reply, 'answered', language, { unverified });
   }
 
@@ -503,7 +630,7 @@ export function createAssistant(options: AssistantOptions): Assistant {
     };
   }
 
-  async function recordUsage(actions: ActionsClient, turnId: string, conversationId: string, usage: TurnUsage): Promise<void> {
+  async function recordUsage(actions: ActionsClient, turnId: string, conversationId: string, usage: TurnUsage, balanceAfter: string | undefined): Promise<void> {
     try {
       const r = await actions.execute({
         action: WELL_KNOWN_ACTIONS.usageRecord,
@@ -518,6 +645,9 @@ export function createAssistant(options: AssistantOptions): Assistant {
           outputTokens: usage.outputTokens,
           costUsd: usage.costUsd,
           occurredAt: now().toISOString(),
+          // Contract 0.1.2: the wallet charge and the balance after it. Older apps simply drop these fields.
+          ...(usage.charge ? { charge: usage.charge } : {}),
+          ...(usage.charge && balanceAfter !== undefined ? { balanceAfter } : {}),
         },
       });
       if (!r.ok && r.error.code !== 'UNKNOWN_ACTION') onError(new Error(`usage not recorded: ${r.error.code}`), 'usage');
@@ -601,4 +731,16 @@ export function trimHistory(messages: ModelMessage[], max: number): ModelMessage
     if (m.role === 'user' && !m.content.some((b) => b.type === 'tool_result')) return messages.slice(i);
   }
   return messages.slice(-1);
+}
+
+function documentOf(action: string, data: unknown): TurnResult['documents'][number] | undefined {
+  if (!data || typeof data !== 'object') return undefined;
+  const d = data as Record<string, unknown>;
+  if (typeof d['documentId'] !== 'string') return undefined;
+  return {
+    action,
+    documentId: d['documentId'],
+    ...(typeof d['fileName'] === 'string' ? { fileName: d['fileName'] } : {}),
+    ...(typeof d['contentType'] === 'string' ? { contentType: d['contentType'] } : {}),
+  };
 }

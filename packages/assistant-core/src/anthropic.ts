@@ -1,5 +1,6 @@
 import type { ContentBlock, ModelClient, ModelRequest, ModelResponse, TextBlock, ToolCallBlock } from './model.js';
-import { ModelError, providerMessage } from './model.js';
+import { ModelError, httpModelError, networkModelError } from './model.js';
+import type { ModelPricing } from './usage.js';
 
 export { ModelError } from './model.js';
 
@@ -18,6 +19,8 @@ export interface AnthropicOptions {
   workspaceId?: string;
   /** Extra headers. */
   headers?: Record<string, string>;
+  /** This model's price, attached to every response so each call is costed correctly. */
+  pricing?: ModelPricing;
 }
 
 function anthropicHeaders(o: Pick<AnthropicOptions, 'apiKey' | 'workspaceId' | 'headers'>): Record<string, string> {
@@ -60,27 +63,26 @@ export function createAnthropicModel(options: AnthropicOptions): ModelClient {
   return {
     async complete(request: ModelRequest): Promise<ModelResponse> {
       const body = toAnthropicBody(options.model, request, cache);
+      const timeoutMs = options.timeoutMs ?? 60_000;
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 60_000);
-      let res: Response;
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        res = await doFetch(url, {
+        const res = await doFetch(url, {
           method: 'POST',
           headers: anthropicHeaders(options),
           body: JSON.stringify(body),
           signal: controller.signal,
         });
+        if (!res.ok) throw httpModelError('Anthropic answered', res, await res.text().catch(() => ''));
+        const response = fromAnthropicResponse((await res.json()) as AnthropicResponse);
+        if (options.pricing) response.pricing = options.pricing;
+        return response;
       } catch (e) {
-        throw new ModelError(`model request failed: ${(e as Error).message}`, undefined, true);
+        if (e instanceof ModelError) throw e;
+        throw networkModelError(e, timeoutMs);
       } finally {
         clearTimeout(timer);
       }
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        const retryable = res.status === 429 || res.status === 529 || res.status >= 500;
-        throw new ModelError(`Anthropic answered ${res.status}: ${providerMessage(text)}`, res.status, retryable);
-      }
-      return fromAnthropicResponse((await res.json()) as AnthropicResponse);
     },
   };
 }
@@ -104,7 +106,7 @@ export async function listAnthropicModels(
       throw new ModelError(`could not reach Anthropic: ${(e as Error).message}`, undefined, true);
     }
     const text = await res.text();
-    if (!res.ok) throw new ModelError(`Anthropic answered ${res.status}: ${providerMessage(text)}`, res.status, res.status === 429 || res.status >= 500);
+    if (!res.ok) throw httpModelError('Anthropic answered', res, text);
     const body = JSON.parse(text) as { data?: Array<{ id: string }>; has_more?: boolean; last_id?: string };
     ids.push(...(body.data ?? []).map((m) => m.id));
     if (!body.has_more || !body.last_id) break;
@@ -129,16 +131,24 @@ export function toAnthropicBody(model: string, request: ModelRequest, cache: boo
   };
 }
 
+/**
+ * Anthropic accepts tool ids of [a-zA-Z0-9_-] only. A conversation started on
+ * another provider may carry other ids; map them the same way on both sides.
+ */
+function anthropicId(id: string): string {
+  return /^[a-zA-Z0-9_-]{1,128}$/.test(id) ? id : `x_${id.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120)}`;
+}
+
 function toAnthropicBlock(block: ContentBlock): Record<string, unknown> {
   switch (block.type) {
     case 'text':
       return { type: 'text', text: block.text };
     case 'tool_call':
-      return { type: 'tool_use', id: block.id, name: block.name, input: block.input ?? {} };
+      return { type: 'tool_use', id: anthropicId(block.id), name: block.name, input: block.input ?? {} };
     case 'tool_result':
       return {
         type: 'tool_result',
-        tool_use_id: block.toolCallId,
+        tool_use_id: anthropicId(block.toolCallId),
         content: block.content,
         ...(block.isError ? { is_error: true } : {}),
       };

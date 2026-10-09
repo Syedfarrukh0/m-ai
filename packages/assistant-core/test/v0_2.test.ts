@@ -77,7 +77,7 @@ function harness(model: ModelClient, extra: Parameters<typeof createAssistant>[0
   const erp = createMockErp();
   const conversations = createMemoryConversationStore();
   const assistant = createAssistant({ model, conversations, now: () => erp.host.now(), retryDelayMs: 1, ...extra });
-  const actions = createInProcessActionsClient(erp.registry, () => erp.assistantCtx(IDS.owner, { actor: { clientId: 'm-ai-assistant' } }));
+  const actions = createInProcessActionsClient(erp.registry, () => erp.assistantCtx(IDS.owner, { actor: { clientId: 'm-ai' } }));
   const turn = (text: string, choice?: 'yes' | 'no') =>
     assistant.handleTurn({ conversationId: 'c1', tenantId: DEMO_TENANT, userId: IDS.owner, text, actions, ...(choice ? { choice } : {}) });
   return { erp, turn, conversations };
@@ -243,9 +243,9 @@ describe('configuration from the environment', () => {
     expect(configFromEnv({ M_AI_MODEL: 'x', ANTHROPIC_API_KEY: 'k' })).toMatchObject({ provider: 'anthropic', modelId: 'x' });
     expect(configFromEnv({ M_AI_PROVIDER: 'openai', M_AI_MODEL: 'x', OPENAI_API_KEY: 'k' }).provider).toBe('openai');
     const local = configFromEnv({ M_AI_PROVIDER: 'openai-compatible', M_AI_MODEL: 'llama3.1', M_AI_BASE_URL: 'http://localhost:11434/v1' });
-    expect(local.pricing).toBeUndefined();
+    expect(local.primary.pricing).toBeUndefined();
     const priced = configFromEnv({ M_AI_MODEL: 'x', M_AI_API_KEY: 'k', M_AI_PRICE_IN: '3', M_AI_PRICE_OUT: '15' });
-    expect(priced.pricing).toEqual({ inputPerMTok: '3', cachedInputPerMTok: '3', outputPerMTok: '15' });
+    expect(priced.primary.pricing).toEqual({ inputPerMTok: '3', cachedInputPerMTok: '3', outputPerMTok: '15' });
     expect(() => configFromEnv({ M_AI_MODEL: 'x' })).toThrow(/M_AI_API_KEY/);
   });
 

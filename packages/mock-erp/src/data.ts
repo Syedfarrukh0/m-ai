@@ -94,7 +94,7 @@ export interface MockData {
   receipts: Receipt[];
   files: RenderedFile[];
   counters: Record<string, number>;
-  usage: Array<{ tenantId: string; turnId: string; kind: string; costUsd: string }>;
+  usage: Array<{ tenantId: string; turnId: string; kind: string; costUsd: string; charge?: { amount: string; currency: string }; balanceAfter?: string }>;
 }
 
 export const DEMO_TENANT = '0192d000-0000-7000-8000-00000000000a';

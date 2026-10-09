@@ -76,9 +76,11 @@ export function createRuntime(data: MockData, ctx: ActionContext, deps: RuntimeD
       },
     },
     usage: {
-      record: (turnId: string, kind: string, costUsd: string) => {
-        if (!data.usage.some((u) => u.tenantId === ctx.tenantId && u.turnId === turnId))
-          data.usage.push({ tenantId: ctx.tenantId, turnId, kind, costUsd });
+      record: (turnId: string, kind: string, costUsd: string, wallet: { charge?: { amount: string; currency: string }; balanceAfter?: string } = {}) => {
+        // Idempotent on the turn, as the ERP is: the same turn again records nothing.
+        if (data.usage.some((u) => u.tenantId === ctx.tenantId && u.turnId === turnId)) return false;
+        data.usage.push({ tenantId: ctx.tenantId, turnId, kind, costUsd, ...wallet });
+        return true;
       },
     },
   };
@@ -547,7 +549,7 @@ export const receivablesOutstanding = defineAction({
   },
 });
 
-export const invoiceRender = defineAction<{ invoiceNo: string }, { fileId: string; fileName: string; pages: number }, Runtime, Events>({
+export const invoiceRender = defineAction<{ invoiceNo: string }, { documentId: string; fileName: string; contentType: 'application/pdf'; pages: number }, Runtime, Events>({
   name: 'documents.invoice.render',
   version: 1,
   kind: 'command',
@@ -555,7 +557,8 @@ export const invoiceRender = defineAction<{ invoiceNo: string }, { fileId: strin
   description: 'Render a sales invoice to PDF so it can be sent or printed.',
   tags: ['documents', 'sales', 'render'],
   input: z.object({ invoiceNo: z.string().min(1) }),
-  output: z.object({ fileId: z.string(), fileName: z.string(), pages: z.number().int() }),
+  // Shaped like the ERP's render: a document id the channel can fetch and attach.
+  output: z.object({ documentId: z.string(), fileName: z.string(), contentType: z.literal('application/pdf'), pages: z.number().int() }),
   permissions: ['invoice:view'],
   risk: 'write',
   requiresConfirmation: false,
@@ -567,7 +570,7 @@ export const invoiceRender = defineAction<{ invoiceNo: string }, { fileId: strin
     const fileName = `${inv.invoiceNo}.pdf`;
     const fileId = ctx.runtime.files.add(fileName);
     await ctx.emit('document.rendered', { fileId, kind: 'invoice' });
-    return { fileId, fileName, pages: 1 };
+    return { documentId: fileId, fileName, contentType: 'application/pdf' as const, pages: 1 };
   },
 });
 
@@ -609,7 +612,7 @@ export const settingsGet = defineAction<Record<string, never>, AssistantSettings
   handler: async (_i, ctx) => ctx.runtime.settings(),
 });
 
-export const usageRecord = defineAction<AssistantUsageRecordInput, { recorded: true }, Runtime, Events>({
+export const usageRecord = defineAction<AssistantUsageRecordInput, { recorded: boolean }, Runtime, Events>({
   name: 'assistant.usage.record',
   version: 1,
   kind: 'command',
@@ -617,16 +620,19 @@ export const usageRecord = defineAction<AssistantUsageRecordInput, { recorded: t
   description: 'Record the model usage and cost of one assistant turn or alert.',
   tags: ['assistant', 'usage'],
   input: AssistantUsageRecordInput,
-  output: z.object({ recorded: z.literal(true) }),
+  output: z.object({ recorded: z.boolean() }),
   permissions: [],
   risk: 'write',
   requiresConfirmation: false,
   idempotent: true,
   handler: async (input, ctx) => {
-    if (ctx.actor?.clientId !== 'm-ai-assistant')
+    if (ctx.actor?.clientId !== 'm-ai')
       return ctx.fail('PERMISSION_DENIED', { en: 'Only the assistant records usage.', ur: 'استعمال صرف اسسٹنٹ درج کرتا ہے۔' });
-    ctx.runtime.usage.record(input.turnId, input.kind, input.costUsd);
-    return { recorded: true as const };
+    const recorded = ctx.runtime.usage.record(input.turnId, input.kind, input.costUsd, {
+      ...(input.charge ? { charge: input.charge } : {}),
+      ...(input.balanceAfter !== undefined ? { balanceAfter: input.balanceAfter } : {}),
+    });
+    return { recorded };
   },
 });
 

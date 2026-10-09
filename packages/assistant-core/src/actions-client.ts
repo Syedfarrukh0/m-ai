@@ -45,6 +45,19 @@ export function createInProcessActionsClient(registry: ActionRegistry, ctx: () =
   };
 }
 
+/** A file the app made (a PDF), fetched with the same delegated token. */
+export type DocumentResult =
+  | { ok: true; bytes: Uint8Array; contentType: string; fileName?: string }
+  | { ok: false; status: number; code: string; message: string };
+
+export interface HttpActionsClient extends ActionsClient {
+  /**
+   * `GET /documents/{documentId}` with the person's delegated token: the file
+   * a render made, for the channel to attach. It never passes through the model.
+   */
+  document(documentId: string, options?: { download?: boolean }): Promise<DocumentResult>;
+}
+
 export interface HttpActionsClientOptions {
   /** The app's base URL, e.g. https://erp.example.com/api. */
   baseUrl: string;
@@ -61,7 +74,7 @@ export interface HttpActionsClientOptions {
  * ActionResult whatever the HTTP status. An execute carrying an idempotency
  * key is retried once if the connection fails, which is safe by contract.
  */
-export function createHttpActionsClient(options: HttpActionsClientOptions): ActionsClient {
+export function createHttpActionsClient(options: HttpActionsClientOptions): HttpActionsClient {
   const doFetch = options.fetch ?? globalThis.fetch;
   const base = options.baseUrl.replace(/\/$/, '');
 
@@ -87,19 +100,72 @@ export function createHttpActionsClient(options: HttpActionsClientOptions): Acti
     } finally {
       clearTimeout(timer);
     }
+    const text = await res.text();
     let parsed: unknown;
     try {
-      parsed = await res.json();
+      parsed = JSON.parse(text);
     } catch {
-      throw new TransportError(`${route} answered ${res.status} without JSON`, res.status);
+      throw new TransportError(`${route} answered ${res.status} without JSON: ${text.slice(0, 200)}`, res.status);
     }
-    if (res.status === 401) throw new TransportError(`${route}: token rejected`, 401);
-    if (typeof parsed !== 'object' || parsed === null) throw new TransportError(`${route}: unexpected body`, res.status);
+    if (res.status === 401) throw new TransportError(`${route}: token rejected (401) ${text.slice(0, 200)}`, 401);
+    if (typeof parsed !== 'object' || parsed === null) throw new TransportError(`${route}: unexpected body ${text.slice(0, 200)}`, res.status);
     return parsed as T;
   }
 
+  async function list(request: ListRequest = {}): Promise<ListResponse> {
+    const body = await post<Record<string, unknown>>(HTTP_ROUTES.list, request);
+    if (Array.isArray(body['actions'])) return body as unknown as ListResponse;
+    // Some hosts wrap the list in an ActionResult.
+    const data = body['data'] as Record<string, unknown> | undefined;
+    if (body['ok'] === true && data && Array.isArray(data['actions'])) return data as unknown as ListResponse;
+    const error = body['error'] as { code?: unknown } | string | undefined;
+    const code = typeof error === 'string' ? error : typeof error?.code === 'string' ? error.code : 'unexpected body';
+    throw new TransportError(`${HTTP_ROUTES.list}: ${code}`);
+  }
+
+  async function document(documentId: string, opts: { download?: boolean } = {}): Promise<DocumentResult> {
+    const token = typeof options.token === 'function' ? await options.token() : options.token;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 30_000);
+    const url = `${base}/documents/${encodeURIComponent(documentId)}${opts.download ? '?download=1' : ''}`;
+    let res: Response;
+    try {
+      res = await doFetch(url, { method: 'GET', headers: { authorization: `Bearer ${token}` }, signal: controller.signal });
+    } catch (e) {
+      clearTimeout(timer);
+      throw new TransportError(`could not reach /documents: ${(e as Error).message}`);
+    }
+    try {
+      if (res.ok) {
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        const disposition = res.headers.get('content-disposition') ?? '';
+        const name = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1] ?? /filename="?([^";]+)"?/i.exec(disposition)?.[1];
+        return {
+          ok: true,
+          bytes,
+          contentType: res.headers.get('content-type') ?? 'application/octet-stream',
+          ...(name ? { fileName: decodeURIComponent(name) } : {}),
+        };
+      }
+      // A refusal comes in the app's REST shape: { code, message, messages, details }.
+      const text = await res.text();
+      let body: { code?: unknown; message?: unknown; error?: unknown } = {};
+      try {
+        body = JSON.parse(text) as typeof body;
+      } catch {
+        body = {};
+      }
+      const code = typeof body.code === 'string' ? body.code : typeof body.error === 'string' ? body.error : `HTTP_${res.status}`;
+      const message = typeof body.message === 'string' ? body.message : text.slice(0, 200);
+      return { ok: false, status: res.status, code, message };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   return {
-    list: (request = {}) => post<ListResponse>(HTTP_ROUTES.list, request),
+    document,
+    list,
     preview: (request) => post<ActionResult<PreviewResult>>(HTTP_ROUTES.preview, request),
     execute: async (request) => {
       const headers: Record<string, string> = request.idempotencyKey ? { [HTTP_HEADERS.idempotencyKey]: request.idempotencyKey } : {};

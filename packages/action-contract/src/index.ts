@@ -22,6 +22,8 @@ export * from './confirmation.js';
 export * from './assistant.js';
 export * from './delegation.js';
 export * from './webhooks.js';
+export * from './requests.js';
+export * from './wallet.js';
 export * from './transport.js';
 export { createActionRegistry, redact, redactWithFlag } from './registry.js';
 export type { ActionRegistry, RegistryOptions } from './registry.js';

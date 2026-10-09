@@ -23,7 +23,7 @@ const show = (e: AssistantEvent) => {
   if (e.type === 'execute') console.log(dim(`    · ERP executed ${e.action}: ${e.ok ? 'ok' : e.code}`));
 };
 const assistant = createAssistant({ model, onEvent: show, now: () => erp.host.now() });
-const actions = createInProcessActionsClient(erp.registry, () => erp.assistantCtx(IDS.owner, { actor: { clientId: 'm-ai-assistant', conversationId: 'demo' } }));
+const actions = createInProcessActionsClient(erp.registry, () => erp.assistantCtx(IDS.owner, { actor: { clientId: 'm-ai', conversationId: 'demo' } }));
 
 async function say(text: string, ...steps: Parameters<typeof model.push>) {
   model.push(...steps);

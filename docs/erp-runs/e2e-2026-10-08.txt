@@ -1,0 +1,83 @@
+
+M.Ai end to end — http://localhost:3001, company DEMO, today 2026-10-08
+records: debtor "Metro Cash & Carry", invoice INV-2026-001442, customer "Al-Fatah Store", product "Nestlé Milkpak 1L", approval limit 50000
+
+PASS tools-for-everyday-messages (12 checks)
+FAIL every-master-list-and-get-answers (13 checks)
+     ✗ masters.product.list — INTERNAL: Something went wrong. Please try again.
+     ✗ masters.product.get — INTERNAL: Something went wrong. Please try again.
+     owner › aaj ki sale kitni hui?
+     M.Ai › Aaj (2026-10-08) ki sale PKR 220,996.48 hai, 5 invoices.
+PASS today-sales-roman-urdu (4 checks)
+     owner › آج کی سیل کتنی ہوئی؟
+     M.Ai › آج (2026-10-08) کی سیل PKR 220,996.48 ہے۔
+PASS today-sales-urdu (4 checks)
+     owner › INV-2026-001442 dikhao
+     M.Ai › INV-2026-001442: Rehman General Store, total PKR 10,924.50, baqi PKR 10,924.50.
+PASS invoice-by-number (2 checks)
+     owner › kis kis ka udhaar baqi hai?
+     M.Ai › Sab se zyada Metro Cash & Carry par PKR 1,957,419.16 hai. Kul PKR 10,896,130.40.
+PASS who-owes (2 checks)
+     owner › Metro Cash & Carry se 100 rupay cash wasool hue
+     M.Ai › Ye hoga:
+            Record PKR 100.00 received from Metro Cash & Carry by cash settling 1 invoice (INV-2026-001212); they will owe PKR 1,957,319.16.
+            Kya main ye kar doon? "haan" ya "nahi" likhein.
+     owner › haan
+     M.Ai › Receipt RC-2026-001037 darj ho gayi.
+PASS receipt-100-yes (4 checks)
+     owner › Al-Fatah Store ko 2 carton Nestlé Milkpak 1L ka bill bana do
+     M.Ai › Ye hoga:
+            Post invoice INV-2026-001443 to Al-Fatah Store for PKR 658.24, sales tax PKR 114.24 included.
+            Dhyan dein: Al-Fatah Store will owe PKR 823,679.82, over their credit limit of PKR 500,000.00.
+            Kya main ye kar doon? "haan" ya "nahi" likhein.
+     owner › nahi
+     M.Ai › Theek hai, cancel kar diya. Kuch tabdeel nahi hua.
+PASS invoice-preview-then-no (3 checks)
+     owner › Metro Cash & Carry ko band kar do
+     M.Ai › Ye hoga:
+            Change 1 detail of "Metro Cash & Carry" (C001).
+            Dhyan dein: "Metro Cash & Carry" still owes PKR 1,957,319.16. Switching it off takes it out of every list and picker; that stays as it is.
+            Kya main ye kar doon? "haan" ya "nahi" likhein.
+     owner › nahi
+     M.Ai › Theek hai, cancel kar diya. Kuch tabdeel nahi hua.
+PASS switch-off-a-customer-who-owes (3 checks)
+     owner › Metro Cash & Carry se 51000 rupay cash wasool hue
+     M.Ai › Ye hoga:
+            Record PKR 51,000.00 received from Metro Cash & Carry by cash settling 2 invoices (INV-2026-001212, INV-2026-001219); they will owe PKR 1,906,319.16.
+            Ye raqam assistant ke liye company ki had se zyada hai, is liye app mein aap ki approval bhi chahiye hogi.
+            Kya main ye kar doon? "haan" ya "nahi" likhein.
+     owner › haan
+     M.Ai › Meherbani karke app mein (bell mein) approve karein, phir mujhe "ho gaya" likhein.
+     owner › ho gaya
+     M.Ai › Receipt RC-2026-001038 darj ho gayi.
+PASS step-up-approved (5 checks)
+     owner › Metro Cash & Carry se 52000 rupay cash wasool hue
+     M.Ai › Ye hoga:
+            Record PKR 52,000.00 received from Metro Cash & Carry by cash settling 1 invoice (INV-2026-001219); they will owe PKR 1,854,319.16.
+            Ye raqam assistant ke liye company ki had se zyada hai, is liye app mein aap ki approval bhi chahiye hogi.
+            Kya main ye kar doon? "haan" ya "nahi" likhein.
+     owner › haan
+     M.Ai › Meherbani karke app mein (bell mein) approve karein, phir mujhe "ho gaya" likhein.
+     owner › ho gaya
+     M.Ai › Approval nahi mili, kuch darj nahi hua.
+PASS step-up-declined (6 checks)
+     owner › Metro Cash & Carry ka statement PDF bana do
+     M.Ai › Statement ki PDF tayyar hai.
+     file: Statement C001 to 2026-10-08.pdf — 129,613 bytes
+PASS statement-pdf (3 checks)
+     owner › INV-2026-001442 ka pdf bhejo
+     M.Ai › Invoice ki PDF tayyar hai.
+     file: Invoice INV-2026-001442.pdf — 79,150 bytes
+PASS invoice-pdf-by-number (3 checks)
+PASS pdf-door-refusals (2 checks)
+     booker › naya customer banao Test Traders, Karachi
+     M.Ai › Ye aap ke ikhtiyar mein nahi.
+PASS booker-cannot-add-a-customer (3 checks)
+     owner › aaj ki sale kitni hui?
+     M.Ai › Aap ki company ke liye assistant band hai. Admin settings mein isay on kar sakta hai.
+PASS assistant-switched-off (4 checks)
+PASS door-rules (4 checks)
+PASS usage-records (3 checks)
+
+17/18 scenarios · 78/80 checks passed
+codes the ERP answered: VALIDATION_FAILED ×1, STEP_UP_REQUIRED ×2, ASSISTANT_POLICY_DENIED ×1

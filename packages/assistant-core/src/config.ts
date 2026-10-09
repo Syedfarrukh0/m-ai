@@ -1,13 +1,17 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { createAnthropicModel, listAnthropicModels } from './anthropic.js';
 import type { LanguagePack } from './languages.js';
 import { BUILTIN_LANGUAGES, LanguagePackSchema } from './languages.js';
 import type { ModelClient } from './model.js';
-import { ModelError } from './model.js';
-import { createOpenAICompatibleModel, listOpenAICompatibleModels } from './openai.js';
-import type { ModelPricing } from './usage.js';
+import { ModelError, isDailyLimitMessage, isNoCreditMessage, isRateLimitMessage, waitHintMs } from './model.js';
+import type { FallbackOptions, ModelSetup, Provider } from './providers.js';
+import type { Billing } from './usage.js';
+import { checkBilling } from './usage.js';
+import { ConfigError, PROVIDERS, PROVIDER_NAMES, buildModel, checkProviderSettings, mainPricing, parsePrices, withFallback } from './providers.js';
+
+export { ConfigError } from './providers.js';
+export type { Provider } from './providers.js';
 
 /**
  * Configuration from environment variables (a `.env` file in development).
@@ -15,70 +19,66 @@ import type { ModelPricing } from './usage.js';
  * program with a message that says exactly what to fix.
  */
 
-export class ConfigError extends Error {
-  constructor(readonly problems: string[]) {
-    super(`M.Ai configuration is incomplete:\n  - ${problems.join('\n  - ')}\nSee .env.example.`);
-    this.name = 'ConfigError';
-  }
-}
-
-const PRICE = /^\d{1,6}(?:\.\d{1,4})?$/;
-const bool = (v: string | undefined, fallback: boolean) => (v === undefined || v === '' ? fallback : /^(1|true|yes|on)$/i.test(v));
-
-export type Provider = 'anthropic' | 'openai' | 'openai-compatible';
-
 export interface M_AI_Config {
+  /** The main model's provider and id (M_AI_PROVIDER, M_AI_MODEL). */
   provider: Provider;
   modelId: string;
+  /** The main model, followed by the fallback models when there are any. Pass it to createAssistant. */
   model: ModelClient;
-  /** The model ids the configured key may use, from the provider. */
+  /** The model ids the main provider's key may use. */
   listModels(): Promise<string[]>;
-  pricing?: ModelPricing;
+  /** The main model alone, with its price. */
+  primary: ModelSetup;
+  /** M_AI_FALLBACK_MODELS, in order. */
+  fallbacks: ModelSetup[];
   languages: LanguagePack[];
   instructions?: string;
+  /** M_AI_CURRENCY, M_AI_USD_RATE, M_AI_MARGIN: how a reply's cost becomes the customer's charge. */
+  billing?: Billing;
+  /** M_AI_USAGE_FOOTER: off | on | tokens. */
+  usageFooter?: 'off' | 'on' | 'tokens';
 }
 
 /**
  * Reads:
- *   M_AI_PROVIDER        anthropic | openai | openai-compatible   (default anthropic)
- *   M_AI_MODEL           the model id                              (required)
- *   M_AI_API_KEY         the provider key (or ANTHROPIC_API_KEY / OPENAI_API_KEY)
+ *   M_AI_PROVIDER        anthropic | openai | zai | openai-compatible   (default anthropic)
+ *   M_AI_MODEL           the model id                                    (required)
+ *   M_AI_API_KEY         the provider key (or ANTHROPIC_API_KEY / OPENAI_API_KEY / ZAI_API_KEY)
  *   M_AI_BASE_URL        required for openai-compatible (e.g. http://localhost:11434/v1)
+ *   M_AI_FALLBACK_MODELS models tried in order when the main one fails, e.g. "zai:glm-4.5-flash"
+ *   M_AI_THINKING        on | off (default off) for models with a thinking switch (Z.ai)
  *   M_AI_ANTHROPIC_WORKSPACE_ID  only for Anthropic keys that are not scoped to a workspace
- *   M_AI_PRICE_IN / M_AI_PRICE_CACHED / M_AI_PRICE_OUT   USD per million tokens (optional)
- *   M_AI_PARALLEL_TOOL_CALLS_PARAM   send parallel_tool_calls:false (default true; openai*)
- *   M_AI_MAX_COMPLETION_TOKENS       use max_completion_tokens (default false; openai*)
+ *   M_AI_PRICE_IN / M_AI_PRICE_CACHED / M_AI_PRICE_OUT   the main model's price, USD per million tokens
+ *   M_AI_PRICES          prices of other models: "zai:glm-4.7-flash=0/0/0; anthropic:x=1/0.1/5"
+ *   M_AI_PARALLEL_TOOL_CALLS_PARAM / M_AI_MAX_COMPLETION_TOKENS / M_AI_EXTRA_BODY   OpenAI-format switches
  *   M_AI_LANGUAGE_PACKS  a folder of extra language packs (*.json)
  *   M_AI_INSTRUCTIONS_FILE  a text file with the app's guidance for the model
+ * Settings of a provider other than M_AI_PROVIDER: M_AI_<PROVIDER>_API_KEY, _BASE_URL, _THINKING…
+ * (e.g. M_AI_OPENAI_COMPATIBLE_BASE_URL), or the usual ZAI_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY.
  */
-export function configFromEnv(env: Record<string, string | undefined> = process.env): M_AI_Config {
+export function configFromEnv(env: Record<string, string | undefined> = process.env, options: FallbackOptions = {}): M_AI_Config {
   const problems: string[] = [];
-  const provider = (env['M_AI_PROVIDER'] || 'anthropic') as Provider;
-  if (!['anthropic', 'openai', 'openai-compatible'].includes(provider))
-    problems.push(`M_AI_PROVIDER must be anthropic, openai or openai-compatible (got "${provider}")`);
+  const rawProvider = env['M_AI_PROVIDER']?.trim() || 'anthropic';
+  const providerOk = (PROVIDER_NAMES as string[]).includes(rawProvider);
+  if (!providerOk) problems.push(`M_AI_PROVIDER must be one of ${PROVIDER_NAMES.join(', ')} (got "${rawProvider}")`);
+  const provider = (providerOk ? rawProvider : 'anthropic') as Provider;
   const modelId = env['M_AI_MODEL']?.trim() ?? '';
-  if (!modelId) problems.push('M_AI_MODEL is required: the model id from your provider');
 
-  const key =
-    env['M_AI_API_KEY']?.trim() ||
-    (provider === 'anthropic' ? env['ANTHROPIC_API_KEY']?.trim() : provider === 'openai' ? env['OPENAI_API_KEY']?.trim() : undefined) ||
-    undefined;
-  if (!key && provider !== 'openai-compatible') problems.push(`M_AI_API_KEY is required for provider ${provider}`);
-
-  const baseUrl = env['M_AI_BASE_URL']?.trim() || undefined;
-  if (provider === 'openai-compatible' && !baseUrl) problems.push('M_AI_BASE_URL is required for openai-compatible (e.g. http://localhost:11434/v1)');
-  if (baseUrl && !z.url().safeParse(baseUrl).success) problems.push(`M_AI_BASE_URL is not a URL: ${baseUrl}`);
-
-  let pricing: ModelPricing | undefined;
-  const pin = env['M_AI_PRICE_IN']?.trim();
-  const pout = env['M_AI_PRICE_OUT']?.trim();
-  const pcached = env['M_AI_PRICE_CACHED']?.trim() || pin;
-  if (pin || pout) {
-    for (const [name, v] of [['M_AI_PRICE_IN', pin], ['M_AI_PRICE_OUT', pout], ['M_AI_PRICE_CACHED', pcached]] as const)
-      if (!v || !PRICE.test(v)) problems.push(`${name} must be a price like "3" or "0.30" (USD per million tokens)`);
-    if (pin && pout && pcached && PRICE.test(pin) && PRICE.test(pout) && PRICE.test(pcached))
-      pricing = { inputPerMTok: pin, cachedInputPerMTok: pcached, outputPerMTok: pout };
+  let primary: ModelSetup | undefined;
+  if (!modelId) {
+    problems.push('M_AI_MODEL is required: the model id from your provider');
+    if (providerOk) problems.push(...checkProviderSettings(provider, env));
+    mainPricing(env, problems);
+  } else if (providerOk) {
+    primary = buildModel(`${provider}:${modelId}`, env, problems);
   }
+
+  const fallbacks: ModelSetup[] = [];
+  for (const spec of (env['M_AI_FALLBACK_MODELS'] ?? '').split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean)) {
+    const setup = buildModel(spec, env, problems);
+    if (setup) fallbacks.push(setup);
+  }
+  parsePrices(env['M_AI_PRICES'], provider, problems);
 
   let languages: LanguagePack[] = [...BUILTIN_LANGUAGES];
   const packsDir = env['M_AI_LANGUAGE_PACKS']?.trim();
@@ -97,29 +97,30 @@ export function configFromEnv(env: Record<string, string | undefined> = process.
     else problems.push(`M_AI_INSTRUCTIONS_FILE not found: ${instructionsFile}`);
   }
 
-  if (problems.length > 0) throw new ConfigError(problems);
-
-  const workspaceId = env['M_AI_ANTHROPIC_WORKSPACE_ID']?.trim() || undefined;
-  let model: ModelClient;
-  let listModels: () => Promise<string[]>;
-  if (provider === 'anthropic') {
-    const o = { apiKey: key!, ...(baseUrl ? { baseUrl } : {}), ...(workspaceId ? { workspaceId } : {}) };
-    model = createAnthropicModel({ ...o, model: modelId });
-    listModels = () => listAnthropicModels(o);
-  } else {
-    const o = { baseUrl: baseUrl ?? 'https://api.openai.com/v1', ...(key ? { apiKey: key } : {}) };
-    model = createOpenAICompatibleModel({
-      ...o,
-      model: modelId,
-      disableParallelToolCalls: bool(env['M_AI_PARALLEL_TOOL_CALLS_PARAM'], true),
-      useMaxCompletionTokens: bool(env['M_AI_MAX_COMPLETION_TOKENS'], false),
-    });
-    listModels = () => listOpenAICompatibleModels(o);
+  let billing: Billing | undefined;
+  const currency = env['M_AI_CURRENCY']?.trim().toUpperCase();
+  if (currency) {
+    const usdRate = env['M_AI_USD_RATE']?.trim() || (currency === 'USD' ? '1' : '');
+    const margin = env['M_AI_MARGIN']?.trim() || undefined;
+    if (!usdRate) problems.push(`M_AI_USD_RATE is required with M_AI_CURRENCY=${currency}: how many ${currency} one US dollar buys, e.g. 276.35`);
+    else {
+      billing = { currency, usdRate, ...(margin ? { margin } : {}) };
+      problems.push(...checkBilling(billing).map((p) => `M_AI_CURRENCY / M_AI_USD_RATE / M_AI_MARGIN: ${p}`));
+    }
   }
+  const footer = env['M_AI_USAGE_FOOTER']?.trim().toLowerCase();
+  if (footer && !['off', 'on', 'tokens'].includes(footer)) problems.push('M_AI_USAGE_FOOTER must be off, on or tokens');
 
-  const config: M_AI_Config = { provider, modelId, model, listModels, languages };
-  if (pricing) config.pricing = pricing;
+  if (problems.length > 0 || !primary) throw new ConfigError([...new Set(problems)]);
+
+  const model = withFallback(
+    [primary, ...fallbacks].map((m) => ({ label: m.spec, model: m.model, ...(m.maxConcurrent ? { maxConcurrent: m.maxConcurrent } : {}) })),
+    options,
+  );
+  const config: M_AI_Config = { provider, modelId, model, listModels: primary.listModels, primary, fallbacks, languages };
   if (instructions) config.instructions = instructions;
+  if (billing) config.billing = billing;
+  if (footer === 'on' || footer === 'tokens') config.usageFooter = footer;
   return config;
 }
 
@@ -168,58 +169,94 @@ export interface PreflightResult {
   ok: boolean;
   /** What is wrong, in plain words, with the provider's own message. */
   problems: string[];
-  /** Model ids close to M_AI_MODEL, when it was not found. */
+  /** Model ids close to the one configured, when it was not found. */
   suggestions: string[];
   /** Notes that don't stop anything. */
   warnings: string[];
 }
 
+/** What pre-flight checks: one model of one provider. An M_AI_Config is checked through its main model. */
+export type PreflightTarget = Pick<ModelSetup, 'provider' | 'modelId' | 'model' | 'listModels'> & { knownModels?: string[] };
+
 const HINTS: Array<[RegExp, string]> = [
   [/workspace/i, 'Create a key inside a workspace (Console → API keys), or set M_AI_ANTHROPIC_WORKSPACE_ID.'],
-  [/invalid x-api-key|invalid api key|incorrect api key|authentication/i, 'The key is wrong, revoked or for another provider. Check M_AI_API_KEY and M_AI_PROVIDER.'],
-  [/credit|billing|balance/i, 'The provider account has no credit. Add billing in the provider console.'],
-  [/model/i, 'Check M_AI_MODEL: it must be the exact id from the list below (run: pnpm --filter @m-ai/assistant-core models).'],
+  [/invalid x-api-key|invalid api key|incorrect api key|authentication|unauthori[sz]ed|api key/i, 'The key is wrong, revoked or for another provider. Check the key in .env and M_AI_PROVIDER.'],
+  [/credit|billing|balance|insufficient|recharge|resource package|余额/i, 'The account has no credit for this model. Add billing in the provider console, or use a free model (pnpm --filter @m-ai/assistant-core models).'],
+  [/rate.?limit|too many|concurren/i, 'The provider is limiting requests (free models allow few at a time). Wait a minute, or set M_AI_FALLBACK_MODELS.'],
+  [/not found.*(pull|try pulling)|try pulling/i, 'Download the model first: ollama pull <model id>. Then: pnpm --filter @m-ai/assistant-core models ollama'],
+  [/model/i, 'Check the model id: it must be the exact id from the list below (run: pnpm --filter @m-ai/assistant-core models).'],
 ];
 
 function explain(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e);
-  const hint = HINTS.find(([re]) => re.test(msg))?.[1];
+  const status = e instanceof ModelError ? e.status : undefined;
+  const noCredit = !isRateLimitMessage(msg) && (HINTS[2]![0].test(msg) || status === 402);
+  const daily = isDailyLimitMessage(msg);
+  const wait = daily ? waitHintMs(msg) : undefined;
+  const hint = daily
+    ? `This model's DAILY limit is used up${wait ? `; the provider says try again in ${Math.ceil(wait / 60_000)} min` : ''}. Use another model (--model, or M_AI_FALLBACK_MODELS), or a paid plan.`
+    : noCredit
+    ? HINTS[2]![1]
+    : status === 401 || status === 403
+      ? HINTS[1]![1]
+      : status === 429
+        ? HINTS[3]![1]
+        : HINTS.find(([re]) => re.test(msg))?.[1];
   return hint ? `${msg}\n    → ${hint}` : msg;
 }
 
+/** Busy for now (rate limit), as opposed to refused (no credit, wrong key). */
+const busy = (e: unknown) => e instanceof ModelError && e.status === 429 && e.retryable;
+
 /**
- * Checks the configuration against the provider before anything else runs:
- * lists the models the key may use (free), and if the configured id is not
- * listed (it may be an alias), makes one tiny call to be sure.
+ * Checks a model against its provider before anything else runs: lists the
+ * models the key may use, then makes one tiny call (a few tokens) — a listed
+ * model can still be refused, e.g. for lack of credit.
+ * `label` names the model in problems (default: M_AI_MODEL "<id>").
  */
-export async function preflight(config: M_AI_Config): Promise<PreflightResult> {
+export async function preflight(target: PreflightTarget | M_AI_Config, label?: string): Promise<PreflightResult> {
+  const t: PreflightTarget = 'primary' in target ? target.primary : target;
+  const name = label ?? `M_AI_MODEL "${t.modelId}"`;
   const result: PreflightResult = { ok: true, problems: [], suggestions: [], warnings: [] };
   let ids: string[] | undefined;
   try {
-    ids = await config.listModels();
+    ids = await t.listModels();
   } catch (e) {
     const status = e instanceof ModelError ? e.status : undefined;
-    if (status === 404 && config.provider === 'openai-compatible') {
-      result.warnings.push('This server does not list its models; the model id is checked with a test call instead.');
+    if (status === 404 || status === 405) {
+      result.warnings.push(`${t.provider} does not list its models; the model id is checked with a test call instead.`);
+    } else if (busy(e)) {
+      result.warnings.push(`${t.provider} is busy (429); the model id is checked with a test call instead.`);
     } else {
       result.ok = false;
       result.problems.push(explain(e));
       return result;
     }
   }
-  if (ids && ids.includes(config.modelId)) return result;
-
+  // Always one tiny call: a listed model can still be refused (no credit for it, plan limits).
   try {
-    await config.model.complete({ system: 'Reply with OK.', messages: [{ role: 'user', content: [{ type: 'text', text: 'ping' }] }], tools: [], maxTokens: 1 });
-    if (ids) result.warnings.push(`"${config.modelId}" is not in the provider's model list, but the test call worked (probably an alias).`);
+    await t.model.complete({ system: 'Reply with OK.', messages: [{ role: 'user', content: [{ type: 'text', text: 'ping' }] }], tools: [], maxTokens: 1 });
+    const free = PROVIDERS[t.provider]?.freeModels?.includes(t.modelId);
+    if (ids && !ids.includes(t.modelId) && !free) result.warnings.push(`"${t.modelId}" is not in the provider's model list, but the test call worked (probably an alias).`);
     return result;
   } catch (e) {
+    if (busy(e)) {
+      result.warnings.push(`${t.provider} is busy right now (429); "${t.modelId}" could not be checked. Continuing.`);
+      return result;
+    }
     result.ok = false;
-    result.problems.push(`M_AI_MODEL "${config.modelId}" did not work: ${explain(e)}`);
-    if (ids && ids.length > 0) {
-      const needle = config.modelId.toLowerCase();
-      const close = ids.filter((id) => id.toLowerCase().includes(needle));
-      result.suggestions = (close.length > 0 ? close : ids).slice(0, 15);
+    result.problems.push(`${name} did not work: ${explain(e)}`);
+    // Refused for lack of credit: the useful suggestions are the free models.
+    const free = PROVIDERS[t.provider]?.freeModels ?? [];
+    if (isNoCreditMessage(e instanceof Error ? e.message : String(e)) && free.length > 0) {
+      result.suggestions = free.filter((id) => id !== t.modelId);
+      return result;
+    }
+    const pool = ids && ids.length > 0 ? ids : (t.knownModels ?? []);
+    if (pool.length > 0) {
+      const needle = t.modelId.toLowerCase();
+      const close = pool.filter((id) => id.toLowerCase().includes(needle));
+      result.suggestions = (close.length > 0 ? close : pool).slice(0, 15);
     }
     return result;
   }

@@ -35,7 +35,7 @@ function setup(erpOptions: MockErpOptions = {}, steps: ScriptStep[] = []) {
   });
   const actionsFor = (userId: string): ActionsClient =>
     createInProcessActionsClient(erp.registry, () =>
-      erp.assistantCtx(userId, { actor: { clientId: 'm-ai-assistant', conversationId: 'wa:03001234567' } }),
+      erp.assistantCtx(userId, { actor: { clientId: 'm-ai', conversationId: 'wa:03001234567' } }),
     );
   const turn = (text: string, userId: string = IDS.owner, conversationId = 'wa:03001234567') =>
     assistant.handleTurn({ conversationId, tenantId: DEMO_TENANT, userId, text, actions: actionsFor(userId) });
@@ -70,7 +70,7 @@ describe('answering questions', () => {
     expect(r).toMatchObject({ status: 'answered', language: 'ur-Latn', reply: 'Aaj ki sale 2,124 hai, saari Usman ki.', unverifiedNumbers: [] });
     const first = t.model.requests[0]!;
     expect(first.system).toContain('Roman Urdu');
-    expect(first.system).toContain('Today is 2026-10-02');
+    expect(first.system).toContain('Today is Friday 2026-10-02');
     expect(first.system).toContain('You are Munshi');
     expect(first.tools.map((x) => x.name)).toEqual(expect.arrayContaining(['reports__sales__summary', 'masters__customer__search']));
     expect(first.tools.map((x) => x.name)).not.toContain('core__context__get');

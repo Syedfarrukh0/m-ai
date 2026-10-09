@@ -18,6 +18,13 @@ export const MoneyString = z
   .describe('Money as a decimal string, up to 4 decimal places. Never a number.');
 export type MoneyString = z.infer<typeof MoneyString>;
 
+/** An ISO 4217 currency code in capitals, e.g. "PKR". */
+export const CurrencyCode = z
+  .string()
+  .regex(/^[A-Z]{3}$/, 'an ISO 4217 code in capitals, such as "PKR"')
+  .describe('An ISO 4217 currency code, e.g. "PKR".');
+export type CurrencyCode = z.infer<typeof CurrencyCode>;
+
 const MONEY_SCALE = 4;
 
 /** Exact integer representation of a MoneyString, scaled by 10^4. */

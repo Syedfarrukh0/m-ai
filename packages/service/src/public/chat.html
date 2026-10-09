@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M.Ai</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2330; --muted: #6b7385; --line: #e3e6ec;
+    --me: #1f6feb; --me-ink: #ffffff; --ai: #ffffff; --accent: #1f6feb; --warn: #b54708; --bad: #c0362c; --ok: #1a7f37;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1218; --panel: #171b23; --ink: #e6e9ef; --muted: #98a1b3; --line: #2a303c;
+      --me: #2f6fde; --me-ink: #ffffff; --ai: #1d222c; --accent: #5b9bff; --warn: #f0a050; --bad: #ff6b5e; --ok: #4cc26a; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Nastaliq Urdu", sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header .brand { font-weight: 700; font-size: 17px; }
+  header .who { color: var(--muted); font-size: 13px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  button { font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 6px 12px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  main { display: flex; flex-direction: column; height: calc(100% - 53px); max-width: 820px; margin: 0 auto; }
+  #signin { margin: 48px auto; width: min(380px, calc(100% - 32px)); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 24px; }
+  #signin h1 { margin: 0 0 4px; font-size: 20px; }
+  #signin p { margin: 0 0 16px; color: var(--muted); font-size: 13px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+  input, textarea { width: 100%; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  #signin button { width: 100%; margin-top: 16px; padding: 9px; }
+  .error { color: var(--bad); font-size: 13px; min-height: 18px; margin-top: 8px; }
+  #chat { display: none; flex: 1; flex-direction: column; min-height: 0; }
+  #log { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 85%; padding: 9px 13px; border-radius: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .me { align-self: flex-end; background: var(--me); color: var(--me-ink); border-bottom-right-radius: 4px; }
+  .ai { align-self: flex-start; background: var(--ai); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+  .ai.unavailable { border-color: var(--warn); }
+  .meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .choices { display: flex; gap: 8px; margin-top: 8px; }
+  .file { display: block; margin-top: 6px; color: var(--accent); }
+  .typing { color: var(--muted); font-style: italic; }
+  .tips { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 16px 8px; }
+  .tips button { font-size: 13px; border-radius: 16px; }
+  form#say { display: flex; gap: 8px; padding: 10px 16px 16px; border-top: 1px solid var(--line); background: var(--panel); }
+  form#say textarea { resize: none; height: 42px; max-height: 140px; }
+  .empty { margin: auto; text-align: center; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">M.Ai</span>
+  <span class="who" id="who"></span>
+  <button id="newchat" hidden>Naya chat</button>
+  <button id="signout" hidden>Sign out</button>
+</header>
+<main>
+  <form id="signin" autocomplete="on">
+    <h1>Sign in</h1>
+    <p>Apni company ke account se sign in karein. M.Ai aap ki taraf se sirf wahi kar sakta hai jis ki aap ko ijazat hai.</p>
+    <label for="tenant">Company code</label>
+    <input id="tenant" name="tenant" autocomplete="organization" required>
+    <label for="email">E-mail</label>
+    <input id="email" name="email" type="email" autocomplete="username" required>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <button class="primary" type="submit">Sign in</button>
+    <div class="error" id="signin-error" role="alert"></div>
+  </form>
+  <section id="chat" aria-live="polite">
+    <div id="log"></div>
+    <div class="tips" id="tips"></div>
+    <form id="say">
+      <textarea id="text" dir="auto" placeholder="Yahan likhein…" aria-label="Message"></textarea>
+      <button class="primary" id="send" type="submit">Bhejein</button>
+    </form>
+  </section>
+</main>
+<script src="/chat.js"></script>
+</body>
+</html>

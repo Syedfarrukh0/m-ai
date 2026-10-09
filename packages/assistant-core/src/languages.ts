@@ -29,7 +29,19 @@ export const PHRASE_KEYS = [
   'yesLabel',
   'noLabel',
 ] as const;
-export type PhraseKey = (typeof PHRASE_KEYS)[number];
+type RequiredPhraseKey = (typeof PHRASE_KEYS)[number];
+
+/** Sentences a pack may leave out: English is used instead. {amount} and {n} are filled in. */
+export const OPTIONAL_PHRASES = {
+  notSaved: '(Note: nothing has been saved or changed yet.)',
+  noBalance: 'Your assistant balance has run out. Please top it up to continue.',
+  notLicensed: 'Your company does not have the assistant licence. Please ask your administrator.',
+  usageCharge: 'this reply {amount}',
+  usageBalance: '{amount} left',
+  usageTokens: '{n} tokens',
+} as const;
+type OptionalPhraseKey = keyof typeof OPTIONAL_PHRASES;
+export type PhraseKey = RequiredPhraseKey | OptionalPhraseKey;
 
 export const LanguagePackSchema = z.object({
   /** e.g. 'en', 'ur', 'ur-Latn', 'pa-Latn', 'sd'. */
@@ -52,7 +64,19 @@ export const LanguagePackSchema = z.object({
   replyRule: z.string().min(1),
   /** Which of the app's two texts to show: its English or its Urdu. */
   appText: z.enum(['en', 'ur']).default('en'),
-  phrases: z.object(Object.fromEntries(PHRASE_KEYS.map((k) => [k, z.string().min(1)])) as Record<PhraseKey, z.ZodString>),
+  /**
+   * Phrases that say a change WAS made ("order laga diya", "has been posted").
+   * A model reply that says so when nothing was executed is corrected, then marked.
+   */
+  doneClaims: z.array(z.string().min(1)).default([]),
+  phrases: z.object({
+    ...(Object.fromEntries(PHRASE_KEYS.map((k) => [k, z.string().min(1)])) as Record<RequiredPhraseKey, z.ZodString>),
+    // Optional: English is used if missing (see OPTIONAL_PHRASES).
+    ...(Object.fromEntries(Object.keys(OPTIONAL_PHRASES).map((k) => [k, z.string().min(1).optional()])) as Record<
+      OptionalPhraseKey,
+      z.ZodOptional<z.ZodString>
+    >),
+  }),
 });
 export type LanguagePack = z.input<typeof LanguagePackSchema>;
 type ParsedPack = z.output<typeof LanguagePackSchema>;
@@ -74,6 +98,11 @@ export const ENGLISH: LanguagePack = {
   noTail: ['please', 'thanks', 'it'],
   replyRule: 'Reply in English.',
   appText: 'en',
+  doneClaims: [
+    'has been posted', 'has been placed', 'has been created', 'has been saved', 'has been sent', 'has been updated', 'has been booked',
+    'i have posted', "i've posted", 'i have placed', "i've placed", 'i have created', "i've created", 'i have saved', "i've saved",
+    'order placed', 'order is placed', 'invoice posted', 'invoice is posted', 'successfully posted', 'successfully placed', 'successfully saved',
+  ],
   phrases: {
     confirmQuestion: 'Shall I go ahead? Reply "yes" or "no".',
     confirmIntro: 'This is what will happen:',
@@ -91,6 +120,7 @@ export const ENGLISH: LanguagePack = {
     noAnswer: "Sorry, I couldn't finish that. Could you say it another way?",
     yesLabel: 'Yes',
     noLabel: 'No',
+    ...OPTIONAL_PHRASES,
   },
 };
 
@@ -105,6 +135,7 @@ export const URDU: LanguagePack = {
   noTail: ['کرو', 'بھائی', 'ابھی', 'رہنے', 'دو'],
   replyRule: 'Reply in Urdu, in Urdu script (Nastaliq). Keep names, codes and numbers exactly as the tools return them.',
   appText: 'ur',
+  doneClaims: ['آرڈر لگا دیا', 'آرڈر لگ گیا', 'بل بنا دیا', 'بل بن گیا', 'پوسٹ کر دیا', 'پوسٹ ہو گیا', 'محفوظ کر دیا', 'محفوظ ہو گیا', 'بھیج دیا', 'کامیابی سے'],
   phrases: {
     confirmQuestion: 'کیا میں یہ کر دوں؟ "ہاں" یا "نہیں" لکھیں۔',
     confirmIntro: 'یہ ہو گا:',
@@ -122,6 +153,12 @@ export const URDU: LanguagePack = {
     noAnswer: 'معذرت، میں یہ مکمل نہیں کر سکا۔ کیا آپ کسی اور طرح بتا سکتے ہیں؟',
     yesLabel: 'ہاں',
     noLabel: 'نہیں',
+    notSaved: '(نوٹ: ابھی کچھ بھی محفوظ یا تبدیل نہیں ہوا۔)',
+    noBalance: 'آپ کا اسسٹنٹ بیلنس ختم ہو گیا ہے۔ جاری رکھنے کے لیے بیلنس ڈلوائیں۔',
+    notLicensed: 'آپ کی کمپنی کے پاس اسسٹنٹ کا لائسنس نہیں ہے۔ اپنے ایڈمن سے بات کریں۔',
+    usageCharge: 'اس جواب کے {amount}',
+    usageBalance: 'باقی {amount}',
+    usageTokens: '{n} ٹوکن',
   },
 };
 
@@ -136,6 +173,9 @@ export const ROMAN_URDU: LanguagePack = {
     'lagao', 'daalo', 'dalo', 'karna', 'krna', 'tak', 'aur', 'bhi', 'mein', 'mai', 'hum', 'tum', 'aap', 'apna', 'apne',
     'unka', 'uska', 'iska', 'baqi', 'baki', 'wasooli', 'wasoli', 'udhaar', 'udhar', 'dukaan', 'dukan', 'maal', 'bikri',
     'hisaab', 'hisab', 'kitny', 'kese', 'kaise', 'kyun', 'kyu', 'dena', 'dyna', 'lena', 'karain', 'karein', 'krain',
+    // The everyday postings, said with English names around them ("Metro Cash & Carry se 100 rupay wasool hue").
+    'wasool', 'wasul', 'hue', 'hua', 'hui', 'huwa', 'rupay', 'rupaye', 'rupye', 'diya', 'diye', 'dijiye', 'kijiye',
+    'banado', 'badal', 'badlo', 'band', 'bhej', 'mila', 'mili', 'mile', 'jama', 'wapas', 'wapis',
   ],
   weakMarkers: ['or', 'ka', 'ki', 'ke', 'ko', 'se', 'sy', 'me', 'do', 'ho', 'to', 'ye', 'yeh', 'wo', 'woh', 'ji', 'na', 'ne', 'pe', 'par'],
   yes: [
@@ -152,6 +192,12 @@ export const ROMAN_URDU: LanguagePack = {
   replyRule:
     'Reply in Roman Urdu (Urdu written in English letters, the way people type on WhatsApp, e.g. "Aaj ki sale 4,850 hai"). Keep names, codes and numbers exactly as the tools return them.',
   appText: 'en',
+  doneClaims: [
+    'bill kiya gaya', 'bill kar diya', 'bill kr diya', 'bill ho gaya', 'bill bana diya', 'bill ban gaya',
+    'order laga diya', 'order lga diya', 'order lag gaya', 'order ho gaya', 'order place ho gaya', 'order place kar diya',
+    'post kar diya', 'post kr diya', 'post ho gaya', 'post ho gayi', 'invoice ban gayi', 'invoice bana di',
+    'save kar diya', 'save ho gaya', 'bhej diya', 'bhej di', 'update kar diya', 'update ho gaya', 'kamyabi se',
+  ],
   phrases: {
     confirmQuestion: 'Kya main ye kar doon? "haan" ya "nahi" likhein.',
     confirmIntro: 'Ye hoga:',
@@ -169,6 +215,12 @@ export const ROMAN_URDU: LanguagePack = {
     noAnswer: 'Maazrat, main ye mukammal nahi kar saka. Kya aap kisi aur tarah bata sakte hain?',
     yesLabel: 'Haan',
     noLabel: 'Nahi',
+    notSaved: '(Note: abhi kuch bhi save ya tabdeel nahi hua.)',
+    noBalance: 'Aap ka assistant balance khatam ho gaya hai. Jari rakhne ke liye balance dalwayein.',
+    notLicensed: 'Aap ki company ke paas assistant ka licence nahi hai. Apne admin se baat karein.',
+    usageCharge: 'is jawab ke {amount}',
+    usageBalance: 'baqi {amount}',
+    usageTokens: '{n} tokens',
   },
 };
 
@@ -186,6 +238,8 @@ export interface Languages {
   /** Deterministic: 'yes' / 'no' only for a short, clear answer in any enabled language. */
   parseConfirmation(text: string): 'yes' | 'no' | 'other';
   phrase(key: PhraseKey, code: string): string;
+  /** True when a text says a change was made (any enabled language), e.g. "order laga diya", "✅". */
+  claimsDone(text: string): boolean;
   /** The app's text (en + ur) in the form this language reads. */
   pick(text: LocalizedText, code: string): string;
   replyRule(code: string): string;
@@ -271,7 +325,14 @@ export function createLanguages(packs: readonly LanguagePack[] = BUILTIN_LANGUAG
     return 'other';
   }
 
-  const phrase = (key: PhraseKey, code: string) => packFor(code).phrases[key];
+  const phrase = (key: PhraseKey, code: string): string =>
+    packFor(code).phrases[key] ?? base.phrases[key] ?? OPTIONAL_PHRASES[key as OptionalPhraseKey];
+  const doneClaims = [...new Set(parsed.flatMap((p) => p.doneClaims.map(normalizeText)).filter(Boolean))];
+  const claimsDone = (text: string) => {
+    if (text.includes('✅') || text.includes('✔')) return true;
+    const t = ` ${normalizeText(text)} `;
+    return doneClaims.some((c) => t.includes(` ${c} `));
+  };
   const pick = (text: LocalizedText, code: string) => (packFor(code).appText === 'ur' ? text.ur : text.en);
 
   return {
@@ -280,6 +341,7 @@ export function createLanguages(packs: readonly LanguagePack[] = BUILTIN_LANGUAG
     detect,
     parseConfirmation,
     phrase,
+    claimsDone,
     pick,
     replyRule: (code) =>
       byCode.has(code)

@@ -1,6 +1,6 @@
 {
-  "catalogHash": "26d6c41ed3610fd121b4da93dcce6fb4b43959790cdc06bed58a4e1cd1651e12",
-  "contractVersion": "0.1.1",
+  "catalogHash": "a1ee5ffe4d3adf70d168af4197e0dd7743fa1ae9f5269668bcb0fa3d6ac8ee1b",
+  "contractVersion": "0.1.3",
   "producer": {
     "name": "demo-erp",
     "version": "1.0.0"
@@ -77,6 +77,30 @@
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
             "description": "An ISO 8601 timestamp."
+          },
+          "charge": {
+            "type": "object",
+            "properties": {
+              "amount": {
+                "type": "string",
+                "pattern": "^-?\\d{1,15}(?:\\.\\d{1,4})?$",
+                "description": "Money as a decimal string, up to 4 decimal places. Never a number."
+              },
+              "currency": {
+                "type": "string",
+                "pattern": "^[A-Z]{3}$",
+                "description": "An ISO 4217 currency code, e.g. \"PKR\"."
+              }
+            },
+            "required": [
+              "amount",
+              "currency"
+            ]
+          },
+          "balanceAfter": {
+            "type": "string",
+            "pattern": "^-?\\d{1,15}(?:\\.\\d{1,4})?$",
+            "description": "Money as a decimal string, up to 4 decimal places. Never a number."
           }
         },
         "required": [
@@ -318,6 +342,11 @@
                       "acceptedBy"
                     ],
                     "additionalProperties": false
+                  },
+                  "lowBalanceMark": {
+                    "type": "string",
+                    "pattern": "^-?\\d{1,15}(?:\\.\\d{1,4})?$",
+                    "description": "Money as a decimal string, up to 4 decimal places. Never a number."
                   }
                 },
                 "required": [
